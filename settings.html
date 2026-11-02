@@ -1,15 +1,21 @@
 <div id="cpm_settings" class="cpm-settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>채팅별 프리셋·토글 기억</b>
+            <b>채팅별 설정 기억</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <small class="cpm-help">채팅마다 마지막으로 쓴 프리셋과, 프리셋마다 켜 둔 토글을 기억해요. 채팅을 다시 열면 그대로 맞추고, 채팅 안에서 프리셋을 바꾸면 그 프리셋으로 쓰던 토글이 켜져요. 프롬프트 목록 위 스위치로 채팅마다 끄고, ⓘ 로 기억한 내용을 볼 수 있어요.</small>
+            <small class="cpm-help">채팅마다 프롬프트(프리셋·토글), 월드인포(전역 선택 · 로어북 항목), 정규식 켜짐/꺼짐을 기억해요. 무엇을 기억할지는 프롬프트 목록 위에서 채팅마다 고를 수 있어요. 채팅을 다시 열면 그대로 맞추고, 채팅 안에서 프리셋을 바꾸면 그 프리셋으로 쓰던 토글이 켜져요. 프롬프트 목록 위 스위치로 채팅마다 끄고, ⓘ 에서 기억한 내용을 보고 바로 고칠 수 있어요.</small>
             <label class="checkbox_label" for="cpm_enabled">
                 <input type="checkbox" id="cpm_enabled">
                 <span>켜기</span>
             </label>
+            <div class="cpm-default-kinds">
+                <span>새 채팅에서 기억할 것</span>
+                <label class="checkbox_label" for="cpm_kind_toggles"><input type="checkbox" id="cpm_kind_toggles"><span>프롬프트 (프리셋·토글)</span></label>
+                <label class="checkbox_label" for="cpm_kind_world"><input type="checkbox" id="cpm_kind_world"><span>월드인포</span></label>
+                <label class="checkbox_label" for="cpm_kind_regex"><input type="checkbox" id="cpm_kind_regex"><span>정규식 (전역·프리셋)</span></label>
+            </div>
             <label class="checkbox_label" for="cpm_restorePreset">
                 <input type="checkbox" id="cpm_restorePreset">
                 <span>채팅을 열 때 마지막 프리셋으로도 바꾸기 (끄면 프리셋은 그대로 두고, 고른 프리셋에 이 채팅에서 쓰던 토글만 맞춤)</span>
