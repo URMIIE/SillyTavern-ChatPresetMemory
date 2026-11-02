@@ -491,9 +491,15 @@ async function showMemory() {
     root.className = 'cpm-info cpm-edit';
     let regexChanged = false;
     const closed = new AbortController();   // 창이 닫히면 문서에 붙인 이벤트도 뗌
+    // 「취소」용: 창을 열 때의 실제 설정과 이 채팅의 기억
+    const openChat = ctx().getCurrentChatId();
+    const openMem = openChat && STORE.chats[openChat] ? structuredClone(STORE.chats[openChat]) : undefined;
+    let openEntries = null;
+    try { openEntries = await readEntries(); } catch (err) { console.warn(LOG, 'world info', err); }
+    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: openEntries, regex: regexState() };
     root.innerHTML = `
         <h3>${e(tr`What this chat remembers`)}</h3>
-        <p class="cpm-edit-sub">${e(tr`Changes here apply right away, and this chat remembers them.`)}</p>
+        <p class="cpm-edit-sub">${e(tr`Changes apply right away. Cancel puts everything back as it was when you opened this.`)}</p>
         <div class="cpm-edit-top">
             <label class="cpm-switch"><input type="checkbox" role="switch" class="cpm-edit-on" ${mem?.off ? '' : 'checked'}><span class="cpm-track" aria-hidden="true"></span><span>${e(tr`Remember this chat`)}</span></label>
             <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${KINDS.map(k => `<button type="button" class="cpm-kind" data-kind="${k}" aria-pressed="${!!kinds[k]}">${e(KIND_LABEL[k]())}</button>`).join('')}</span>
@@ -734,7 +740,20 @@ async function showMemory() {
         await keep('toggles', paintToggles); await keep('regex', paintRegex); await keep('connection', paintConnection); await keep('world', paintWorld); await keep('copy', () => paintCopy());
     }));
     paintTop(); paintToggles(); paintRegex(); paintConnection(); paintCopy(); await paintWorld();
-    await ctx().callGenericPopup(root, ctx().POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
+    const result = await ctx().callGenericPopup(root, ctx().POPUP_TYPE.CONFIRM, '', { wide: true, allowVerticalScrolling: true, okButton: tr`OK`, cancelButton: tr`Cancel` });
+    if (result !== ctx().POPUP_RESULT.AFFIRMATIVE && ctx().getCurrentChatId() === openChat) {
+        // 취소 (Esc 포함): 창에서 바꾼 실제 설정과 이 채팅의 기억을 연 때로 되돌림 — 「다른 채팅에 적용」은 이미 적용한 것으로 둠
+        restoring = true;
+        try {
+            if (nfc(before.preset) === nfc(currentPreset())) await applyToggles(before.toggles);
+            applyWorld(before.world);
+            if (before.entries) { await applyEntries(before.entries); await refreshEntries(); }
+            if (await applyRegex(before.regex)) regexChanged = true;
+        } finally {
+            restoring = false;
+        }
+        putMemory(openChat, openMem);
+    }
     closed.abort();
     if (regexChanged) await ctx().reloadCurrentChat();   // 바뀐 정규식으로 채팅을 다시 그림
     renderBar();

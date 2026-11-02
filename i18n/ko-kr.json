@@ -32,7 +32,6 @@
     "World info ${0}": "월드인포 항목 ${0}개",
     "Global world info": "전역 월드인포",
     "Lorebook entries": "로어북 항목",
-    "Changes here apply right away, and this chat remembers them.": "여기서 바꾸면 바로 적용되고, 이 채팅이 그대로 기억해요.",
     "Not remembered in this chat: ${0} (turn it on in the bar)": "이 채팅에서 기억하지 않는 것: ${0} (막대에서 켜면 기억해요)",
     "Prompts": "프롬프트",
     "Search": "검색",
@@ -84,5 +83,8 @@
     "applied": "적용됨",
     "None applied": "적용된 채팅 없음",
     "Loading…": "불러오는 중…",
-    "Turn on remembering for this chat first.": "먼저 이 채팅 기억을 켜 주세요."
+    "Turn on remembering for this chat first.": "먼저 이 채팅 기억을 켜 주세요.",
+    "Changes apply right away. Cancel puts everything back as it was when you opened this.": "바꾸면 바로 적용돼요. 「취소」를 누르면 이 창을 열 때로 모두 돌아가요.",
+    "OK": "확인",
+    "Cancel": "취소"
 }
