@@ -27,7 +27,7 @@
     .cpm-bar { min-height: 40px; }
 }
 
-.cpm-info-btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 6px; color: var(--cpm-muted); cursor: pointer; }
+.cpm-info-btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 2.15em; height: 2.15em; border-radius: 6px; color: var(--cpm-muted); cursor: pointer; }
 .cpm-info-btn:hover { color: var(--SmartThemeBodyColor); background: color-mix(in srgb, var(--SmartThemeBodyColor) 9%, transparent); }
 .cpm-info-btn:focus-visible { outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: -2px; }
 .cpm-info { text-align: left; }
@@ -73,7 +73,7 @@
 .cpm-bar { gap: 8px; }
 .cpm-switch { gap: 0; }
 .cpm-kinds { gap: 8px; }
-.cpm-info-btn { width: 24px; height: 28px; }
+.cpm-info-btn { width: 1.75em; height: 2.05em; }  /* 프롬프트 그룹 도구 줄 안: 테마 글자 크기를 따라감 */
 /* 스위치는 크게, ⓘ 는 작게, 간격 6px */
 .cpm-bar { gap: 6px; }
 .cpm-kinds { gap: 6px; }
