@@ -132,3 +132,61 @@
 
 /* 한국어 낱말이 줄 끝에서 쪼개지지 않게 */
 .cpm-bar, .cpm-edit, .cpm-settings { word-break: keep-all; overflow-wrap: anywhere; }
+
+/* ── 막대 다시: 작은 스위치 + 가벼운 칩(테두리 옅게, 고르면 옅은 바탕) + ⓘ 는 끝 ── */
+.cpm-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 30px; margin: 4px 0 6px; }
+.cpm-bar .cpm-switch { flex: none; }
+.cpm-bar .cpm-track { width: 32px; height: 18px; border-radius: 9px; }
+.cpm-bar .cpm-track::after { top: 2px; left: 2px; width: 14px; height: 14px; }
+.cpm-bar .cpm-switch input:checked + .cpm-track::after { transform: translateX(14px); }
+.cpm-bar .cpm-kinds { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.cpm-bar .cpm-kind, .cpm-edit .cpm-kind {
+    flex: none; max-width: none; min-width: 0; padding: 2px 10px; border-radius: 999px;
+    border: 1px solid var(--cpm-line); background: transparent; color: var(--cpm-muted);
+    font-size: .8em; line-height: 1.5; text-align: center; transition: background-color .15s, color .15s, border-color .15s;
+}
+.cpm-bar .cpm-kind[aria-pressed="true"], .cpm-edit .cpm-kind[aria-pressed="true"] {
+    color: var(--SmartThemeBodyColor); border-color: transparent;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
+}
+.cpm-bar .cpm-kind:hover:not(:disabled) { color: var(--SmartThemeBodyColor); border-color: color-mix(in srgb, var(--SmartThemeBodyColor) 30%, transparent); }
+.cpm-bar .cpm-info-btn { flex: none; margin-left: auto; width: 24px; height: 24px; font-size: .85em; border-radius: 6px; }
+@media (pointer: coarse) { .cpm-bar .cpm-kind { padding: 4px 11px; } .cpm-bar .cpm-info-btn { width: 30px; height: 30px; } }
+/* ⓘ 창: 연결 · 다른 채팅에 적용 */
+.cpm-edit .cpm-conn { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 2px 0 6px; font-size: .92em; }
+.cpm-edit .cpm-conn dt { color: var(--cpm-muted); }
+.cpm-edit .cpm-conn dd { margin: 0; overflow-wrap: anywhere; }
+.cpm-edit .cpm-copy-body { margin-top: 6px; }
+.cpm-edit .cpm-copy-body .menu_button { width: auto; margin: 0; padding: 4px 12px; font-size: .88em; }
+.cpm-edit .cpm-pend { margin-left: auto; color: var(--SmartThemeQuoteColor); }
+.cpm-edit .cpm-copy-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.cpm-edit .cpm-all { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+/* ⓘ 창 위 스위치도 막대와 같은 작은 크기 */
+.cpm-edit .cpm-edit-top .cpm-track { width: 32px; height: 18px; border-radius: 9px; }
+.cpm-edit .cpm-edit-top .cpm-track::after { top: 2px; left: 2px; width: 14px; height: 14px; }
+.cpm-edit .cpm-edit-top .cpm-switch input:checked + .cpm-track::after { transform: translateX(14px); }
+.cpm-edit .cpm-edit-top .cpm-kinds { flex-wrap: wrap; gap: 4px; }
+/* 막대: 「이 채팅 기억」 글 + 칩까지 한 줄 — 좁으면 칩 줄만 옆으로 밀어 봄(스크롤바 숨김) */
+.cpm-bar { flex-wrap: nowrap; }
+.cpm-bar .cpm-switch { gap: 6px; }
+.cpm-bar .cpm-text { position: static; width: auto; height: auto; clip: auto; overflow: visible; white-space: nowrap; font-size: .8em; color: var(--cpm-muted); }
+.cpm-bar .cpm-switch input:checked ~ .cpm-text { color: var(--SmartThemeBodyColor); }
+.cpm-bar .cpm-kinds { flex: 1 1 auto; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.cpm-bar .cpm-kinds::-webkit-scrollbar { display: none; }
+.cpm-bar .cpm-kind { padding: 2px 8px; font-size: .76em; white-space: nowrap; }
+/* ⓘ 창: 접고 펴기를 부드럽게(높이 · 투명도) */
+.cpm-edit { interpolate-size: allow-keywords; }
+.cpm-edit .cpm-group::details-content { block-size: 0; overflow: clip; opacity: 0; transition: block-size .22s ease, opacity .18s ease, content-visibility .22s allow-discrete; }
+.cpm-edit .cpm-group[open]::details-content { block-size: auto; opacity: 1; }
+.cpm-edit .cpm-group > summary { transition: color .15s ease; }
+.cpm-edit .cpm-group > summary:hover { color: var(--SmartThemeBodyColor); }
+.cpm-edit .cpm-group > summary::before { transition: transform .2s ease; }
+@media (prefers-reduced-motion: reduce) { .cpm-edit .cpm-group::details-content, .cpm-edit .cpm-group > summary::before { transition: none; } }
+/* 다른 채팅에 적용: 끌어서 고를 때 글자가 선택되지 않게 */
+.cpm-edit .cpm-chats { user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+.cpm-edit .cpm-chats label { cursor: pointer; }
+.cpm-edit .cpm-pick-hint { margin: 4px 0 6px; }
+/* 확장 설정 칸의 「지금 채팅」 막대 */
+.cpm-settings .cpm-here-wrap { margin: 6px 0 10px; padding: 8px 10px; border: 1px solid var(--cpm-line, color-mix(in srgb, var(--SmartThemeBodyColor) 14%, transparent)); border-radius: 8px; }
+.cpm-settings .cpm-here-title { display: block; margin-bottom: 4px; font-size: .8em; opacity: .7; }
+.cpm-settings .cpm-bar { margin: 0; }

@@ -2,17 +2,21 @@
 // and restores them when the chat is opened again.
 // Stored in the chat file: chat_metadata.chatPresetMemory =
 //   { preset: 마지막 프리셋, toggles: 그 프리셋의 토글, byPreset: { 프리셋 이름: 토글 }, world: [켜 둔 전역 월드인포],
-//     regex: { 정규식 id: 켜짐 } (전역 · 프리셋 정규식), kinds: { toggles, world, regex } 무엇을 기억할지, at, off? }
+//     regex: { 정규식 id: 켜짐 } (전역 · 프리셋 정규식), connection: { profile | source, model },
+//     kinds: { toggles, world, regex, connection } 무엇을 기억할지, at, off? }
+// 기억은 채팅 파일이 아니라 서버 파일 user/files/chat-preset-memory.json { chats: { 채팅 id: 기억 } } 에 둠
+// — 채팅 파일을 다시 쓰지 않아 최근 채팅 목록 순서가 바뀌지 않음. 예전 기억(chat_metadata)은 읽기만 함
 // Optional character default: extension settings byChar[avatar | group:id] = 같은 꼴
 
-import { oai_settings, promptManager, getPresetApplicationPromise } from '../../../openai.js';
+import { oai_settings, promptManager, getPresetApplicationPromise, getChatCompletionModel } from '../../../openai.js';
+import { extension_settings } from '../../../extensions.js';
 import { selected_world_info, world_names, world_info } from '../../../world-info.js';
 import { getScriptsByType, saveScriptsByType, SCRIPT_TYPES } from '../../regex/engine.js';
 
 const MODULE = 'chatPresetMemory';
 const LOG = '[Chat Preset Memory]';
-const KINDS = ['toggles', 'world', 'regex'];
-const DEFAULTS = Object.freeze({ enabled: true, restorePreset: true, charDefault: true, notify: true, byChar: {}, kinds: { toggles: true, world: false, regex: false } });
+const KINDS = ['toggles', 'world', 'regex', 'connection'];
+const DEFAULTS = Object.freeze({ enabled: true, restorePreset: true, charDefault: true, notify: true, byChar: {}, pending: {}, showBar: true, kinds: { toggles: true, world: false, regex: false, connection: false } });
 const ctx = () => SillyTavern.getContext();
 const nfc = (s) => String(s ?? '').normalize('NFC');
 
@@ -31,6 +35,9 @@ function settings() {
     const all = ctx().extensionSettings;
     all[MODULE] = Object.assign({}, structuredClone(DEFAULTS), all[MODULE]);
     if (!all[MODULE].byChar || typeof all[MODULE].byChar !== 'object') all[MODULE].byChar = {};
+    if (!all[MODULE].pending || typeof all[MODULE].pending !== 'object') all[MODULE].pending = {};
+    // 「프롬프트 목록 위에도 설정 보이기」 기본값이 꺼짐이던 때 저장된 값은 한 번만 켬
+    if (!all[MODULE].showBarSet) { all[MODULE].showBar = true; all[MODULE].showBarSet = true; }
     all[MODULE].kinds = { ...DEFAULTS.kinds, ...(all[MODULE].kinds || {}) };
     return all[MODULE];
 }
@@ -47,7 +54,45 @@ function charKey() {
     return c.characters?.[c.characterId]?.avatar || null;
 }
 
-const memory = () => ctx().chatMetadata?.[MODULE] || null;
+// ---------------- 기억 저장소 (서버 파일 하나) ----------------
+const STORE_FILE = 'chat-preset-memory.json';
+let STORE = { chats: {} };
+const dirty = new Set();
+let storeReady = null, storeTimer = null;
+function loadStore() {
+    storeReady ??= (async () => {
+        try { const r = await fetch(`/user/files/${STORE_FILE}`, { cache: 'no-store' }); if (r.ok) STORE = await r.json(); } catch { /* 처음엔 없음 */ }
+        if (!STORE || typeof STORE !== 'object') STORE = {};
+        if (!STORE.chats || typeof STORE.chats !== 'object') STORE.chats = {};
+    })();
+    return storeReady;
+}
+/** 바뀐 채팅만 — 저장 직전에 파일을 다시 읽어 다른 탭 · 기기의 기억을 덮지 않음 */
+async function saveStore() {
+    const ids = [...dirty]; dirty.clear();
+    if (!ids.length) return;
+    let latest = { chats: {} };
+    try { const r = await fetch(`/user/files/${STORE_FILE}`, { cache: 'no-store' }); if (r.ok) latest = await r.json(); } catch { /* 없음 */ }
+    if (!latest.chats || typeof latest.chats !== 'object') latest.chats = {};
+    for (const id of ids) { if (STORE.chats[id] === undefined) delete latest.chats[id]; else latest.chats[id] = STORE.chats[id]; }
+    STORE.chats = { ...latest.chats, ...Object.fromEntries(ids.filter(id => STORE.chats[id] !== undefined).map(id => [id, STORE.chats[id]])) };
+    const json = JSON.stringify(latest);
+    const bytes = new TextEncoder().encode(json); let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));   // 큰 파일도 한 번에 펼치지 않게
+    const data = btoa(bin);
+    await fetch('/api/files/upload', { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify({ name: STORE_FILE, data }) });
+}
+function scheduleStore(urgent) {
+    clearTimeout(storeTimer);
+    storeTimer = setTimeout(() => saveStore().catch(err => console.warn(LOG, 'save', err)), urgent ? 0 : 1500);
+}
+function putMemory(id, value, urgent = true) {
+    if (!id) return;
+    if (value === undefined) delete STORE.chats[id]; else STORE.chats[id] = value;
+    dirty.add(id);
+    scheduleStore(urgent);
+}
+const memory = () => { const id = ctx().getCurrentChatId(); return (id && STORE.chats[id]) || ctx().chatMetadata?.[MODULE] || null; };
 const currentPreset = () => oai_settings.preset_settings_openai;
 
 /** 프리셋 이름 → 그 프리셋에서 기억한 토글 (예전 꼴 {preset, toggles} 도 읽음) */
@@ -68,6 +113,37 @@ function regexState() {
     return out;
 }
 const worldState = () => [...selected_world_info].sort();
+
+// 연결: 연결 프로필을 쓰면 그 이름, 아니면 공급자 + 모델
+function connectionState() {
+    const cm = extension_settings.connectionManager;
+    const profile = cm?.profiles?.find(p => p.id === cm.selectedProfile)?.name || null;
+    return profile ? { profile } : { source: oai_settings.chat_completion_source, model: getChatCompletionModel() };
+}
+/** 기억한 연결로 → 바뀌었으면 true (같으면 아무것도 안 함) */
+async function applyConnection(state) {
+    if (!state || JSON.stringify(state) === JSON.stringify(connectionState())) return false;
+    if (state.profile) {
+        if (!extension_settings.connectionManager?.profiles?.some(p => p.name === state.profile)) {
+            toastr.warning(tr`Saved connection profile "${state.profile}" was not found.`, tr`Chat Preset Memory`);
+            return false;
+        }
+        await ctx().executeSlashCommandsWithOptions(`/profile await=true ${JSON.stringify(state.profile)}`);
+        return true;
+    }
+    if (!state.source) return false;
+    if (oai_settings.chat_completion_source !== state.source) {
+        $('#chat_completion_source').val(state.source).trigger('change');
+        await new Promise(r => setTimeout(r, 300));
+    }
+    if (state.model && getChatCompletionModel() !== state.model) {
+        const sel = [...document.querySelectorAll('select[id^="model_"][id$="_select"]')].find(x => x.offsetParent && [...x.options].some(o => o.value === state.model));
+        if (sel) $(sel).val(state.model).trigger('change');
+        else if (state.source === 'custom') $('#custom_model_id').val(state.model).trigger('input');
+    }
+    return true;
+}
+const connectionLabel = st => st?.profile || [st?.source, st?.model].filter(Boolean).join(' · ');
 
 // 이 채팅에 걸린 로어북: 전역 선택 · 채팅 로어북 · 캐릭터(그룹이면 멤버들)의 연결 · 추가 로어북
 function activeBooks() {
@@ -104,6 +180,7 @@ function snapshot(kinds = kindsOf()) {
     }
     if (kinds.world) { snap.world = worldState(); if (lastEntries) snap.entries = lastEntries; }
     if (kinds.regex) snap.regex = regexState();
+    if (kinds.connection) snap.connection = connectionState();
     return snap;
 }
 
@@ -115,7 +192,9 @@ function merged(prev, snap, extra = {}) {
         for (const k of Object.keys(byPreset)) if (nfc(k) === nfc(snap.preset)) delete byPreset[k];
         byPreset[snap.preset] = snap.toggles;
     }
-    return { ...(prev || {}), ...snap, byPreset, ...extra, at: Date.now() };
+    const out = { ...(prev || {}), ...snap, byPreset, ...extra, at: Date.now() };
+    if (out.toggles && togglesFor({ byPreset }, out.preset)) delete out.toggles;   // byPreset 에 이미 있음 (파일을 가볍게)
+    return out;
 }
 
 // 채팅을 바꾸는 중·맞추는 중·프리셋을 바꾸는 중에는 기억하지 않음 (다른 채팅·다른 프리셋 상태가 섞이지 않게)
@@ -126,14 +205,14 @@ let switching = false;
 function store(snap, extra = {}) {
     const c = ctx();
     const prev = memory();
-    c.chatMetadata[MODULE] = merged(prev, snap, extra);
+    const next = merged(prev, snap, extra);
     // 프리셋이 바뀌었거나 켬/끔을 바꿨으면 바로 저장(그 사이 채팅을 옮겨도 예전 프리셋으로 돌아가지 않게),
     // 토글만 바뀌었으면 몰아서 저장(채팅 파일 전체를 매번 쓰지 않게)
     const urgent = !prev || nfc(prev.preset) !== nfc(snap.preset) || 'off' in extra || 'kinds' in extra
         || JSON.stringify(prev.world) !== JSON.stringify(snap.world ?? prev.world)
-        || JSON.stringify(prev.entries) !== JSON.stringify(snap.entries ?? prev.entries);
-    if (urgent && c.saveMetadata) c.saveMetadata().catch?.(err => console.warn(LOG, err));
-    else c.saveMetadataDebounced();
+        || JSON.stringify(prev.entries) !== JSON.stringify(snap.entries ?? prev.entries)
+        || JSON.stringify(prev.connection) !== JSON.stringify(snap.connection ?? prev.connection);
+    putMemory(c.getCurrentChatId(), next, urgent);
     const key = charKey();
     if (key && settings().charDefault) {
         settings().byChar[key] = merged(settings().byChar[key], snap);
@@ -146,7 +225,8 @@ const sameAsMemory = (mem, snap) => !!mem && nfc(mem.preset) === nfc(snap.preset
     && (!snap.toggles || JSON.stringify(togglesFor(mem, snap.preset)) === JSON.stringify(snap.toggles))
     && (!snap.world || JSON.stringify(mem.world) === JSON.stringify(snap.world))
     && (!snap.entries || JSON.stringify(mem.entries) === JSON.stringify(snap.entries))
-    && (!snap.regex || JSON.stringify(mem.regex) === JSON.stringify(snap.regex));
+    && (!snap.regex || JSON.stringify(mem.regex) === JSON.stringify(snap.regex))
+    && (!snap.connection || JSON.stringify(mem.connection) === JSON.stringify(snap.connection));
 
 /** 바꿀 때마다 기억 (이 채팅 기억을 끈 경우는 제외) */
 let saveTimer = null;
@@ -242,8 +322,13 @@ async function restore(mem, label) {
     const notes = [];
     restoring = true;
     const kinds = kindsOf(mem);
+    // 되돌리기용: 바꾸기 전 상태(이 채팅이 맞출 종류만)
+    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: lastEntries, regex: kinds.regex ? regexState() : null, connection: kinds.connection ? connectionState() : null };
     let regexChanged = 0;
     try {
+        // 연결 먼저 — 연결 프로필이 프리셋까지 바꿀 수 있어서, 그 뒤에 프리셋 · 토글을 맞춤
+        if (kinds.connection && await applyConnection(mem.connection)) notes.push(tr`Connection: ${connectionLabel(mem.connection)}`);
+        if (ctx().getCurrentChatId() !== chatId) return;
         if (kinds.toggles && settings().restorePreset && mem.preset && nfc(mem.preset) !== nfc(currentPreset())) {
             if (!(await switchPreset(mem.preset))) {
                 toastr.warning(tr`Saved preset "${mem.preset}" was not found.`, tr`Chat Preset Memory`);
@@ -269,9 +354,34 @@ async function restore(mem, label) {
     } finally {
         restoring = false;
     }
-    if (notes.length && settings().notify) toastr.info(`${label}: ${notes.join(' · ')}`, tr`Chat Preset Memory`, { timeOut: 2500 });
+    if (notes.length && settings().notify) {
+        const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+        toastr.info(`${esc(label)}: ${esc(notes.join(' · '))} <u>${esc(tr`Undo`)}</u>`, tr`Chat Preset Memory`, {
+            escapeHtml: false, timeOut: 8000, extendedTimeOut: 4000,
+            onclick: () => undoRestore(before, kinds, chatId),
+        });
+    }
     // 화면에 그리는 정규식이 바뀌었으면 이 채팅을 한 번 다시 그림
     if (regexChanged && ctx().getCurrentChatId() === chatId) await ctx().reloadCurrentChat();
+}
+
+/** 채팅을 열며 바뀐 것을 그 전으로 — 되돌린 상태를 이 채팅이 기억함 */
+async function undoRestore(before, kinds, chatId) {
+    if (ctx().getCurrentChatId() !== chatId) return void toastr.warning(tr`You're in another chat now, so this can't be undone.`, tr`Chat Preset Memory`);
+    restoring = true;
+    let regexChanged = 0;
+    try {
+        if (kinds.connection) await applyConnection(before.connection);
+        if (kinds.toggles && nfc(before.preset) !== nfc(currentPreset())) await switchPreset(before.preset);
+        if (kinds.toggles) await applyToggles(before.toggles);
+        if (kinds.world) { applyWorld(before.world); await applyEntries(before.entries); await refreshEntries(); }
+        if (kinds.regex) regexChanged = await applyRegex(before.regex);
+    } finally {
+        restoring = false;
+    }
+    store(snapshot());
+    toastr.info(tr`Back to the settings before opening this chat.`, tr`Chat Preset Memory`, { timeOut: 2500 });
+    if (regexChanged) await ctx().reloadCurrentChat();
 }
 
 /** 채팅 안에서 사용자가 프리셋을 바꿨을 때: 이 채팅에서 그 프리셋으로 기억한 토글이 있으면 맞추고, 그 상태를 기억 */
@@ -302,7 +412,20 @@ async function onChatChanged() {
     renderBar();
     await new Promise(r => setTimeout(r, 500));
     if (my !== seq) return;
-    await refreshEntries();
+    await loadStore();
+    // 예전 방식의 예약(설정 파일 pending)이 남아 있으면 저장소로 옮김 — 채팅 파일은 건드리지 않음
+    const chatId = ctx().getCurrentChatId(), pend = chatId && settings().pending[chatId];
+    if (pend) { putMemory(chatId, { ...structuredClone(pend), at: Date.now() }); delete settings().pending[chatId]; ctx().saveSettingsDebounced(); }
+    // 예전에 채팅 파일에 넣어 둔 기억은 저장소로 옮겨 씀(읽기만)
+    else if (chatId && !STORE.chats[chatId]) {
+        // 분기(Branch)는 원래 채팅(main_chat)의 지금 기억을 물려받고, 그게 없으면 채팅 파일에 남은 예전 기억을 옮김
+        const parent = ctx().chatMetadata?.main_chat && STORE.chats[ctx().chatMetadata.main_chat];
+        const old = parent || ctx().chatMetadata?.[MODULE];
+        if (old) putMemory(chatId, { ...structuredClone(old), at: Date.now() }, false);
+    }
+    // 로어북 파일 읽기는 월드인포를 기억하는 채팅에서만 (채팅을 열 때 일을 줄임)
+    lastEntries = null;
+    if (kindsOf().world) await refreshEntries();
     if (my !== seq) return;
     try {
         if (usable()) {
@@ -340,7 +463,9 @@ async function showMemory() {
         </div>
         <div class="cpm-sec" data-sec="toggles"></div>
         <div class="cpm-sec" data-sec="world"></div>
-        <div class="cpm-sec" data-sec="regex"></div>`;
+        <div class="cpm-sec" data-sec="regex"></div>
+        <div class="cpm-sec" data-sec="connection"></div>
+        <div class="cpm-sec cpm-copy" data-sec="copy"></div>`;
     const sec = k => root.querySelector(`[data-sec="${k}"]`);
     const search = (box, rows) => {
         const inp = box.querySelector('.cpm-search');
@@ -374,7 +499,7 @@ async function showMemory() {
         box.querySelectorAll('.cpm-forget').forEach(btn => btn.addEventListener('click', () => {
             const m = memory(); if (!m?.byPreset) return;
             delete m.byPreset[btn.dataset.p];
-            ctx().saveMetadata?.();
+            putMemory(ctx().getCurrentChatId(), m);
             paintToggles();
         }));
         box.querySelectorAll('details').forEach(d => search(d, () => d.querySelectorAll('.cpm-checks li')));
@@ -441,6 +566,85 @@ async function showMemory() {
         box.querySelectorAll('details').forEach(d => search(d, () => d.querySelectorAll('.cpm-checks li')));
     };
 
+    // 연결: 지금 연결과 이 채팅이 기억한 연결 (바꾸는 건 실리태번 연결 화면에서 — 바꾸면 따라 기억)
+    const paintConnection = () => {
+        const box = sec('connection');
+        box.hidden = !kinds.connection;
+        if (!kinds.connection) { box.innerHTML = ''; return; }
+        const now = connectionState(), saved = memory()?.connection;
+        box.innerHTML = `<h4>${e(tr`Connection`)}</h4>
+            <dl class="cpm-conn"><dt>${e(tr`Now`)}</dt><dd>${e(connectionLabel(now) || '—')}</dd><dt>${e(tr`Remembered`)}</dt><dd>${e(connectionLabel(saved) || tr`Not remembered yet`)}</dd></dl>
+            <p class="cpm-edit-sub">${e(tr`Change the connection profile or model in SillyTavern's API panel; this chat follows it.`)}</p>`;
+    };
+
+    // 다른 채팅에 적용: 고른 채팅을 열 때 이 기억으로 바뀜 (지금 그 채팅 파일을 열거나 다시 쓰지 않음)
+    const paintCopy = () => {
+        const box = sec('copy');
+        const on = !memory()?.off && !!memory();
+        box.innerHTML = `<details class="cpm-group"><summary><span class="cpm-g-title">${e(tr`Apply to other chats`)}</span><span class="cpm-count">${e(tr`This character`)}</span></summary>
+            <p class="cpm-edit-sub">${e(tr`The chats you pick switch to this chat's settings the next time you open them.`)}</p>
+            <div class="cpm-copy-body"><button type="button" class="menu_button cpm-load">${e(tr`Show this character's chats`)}</button></div></details>`;
+        box.querySelector('.cpm-load').disabled = !on;
+        box.querySelector('.cpm-load').addEventListener('click', async ev => {
+            const body = box.querySelector('.cpm-copy-body');
+            ev.target.disabled = true;
+            let ids = [];
+            try { ids = await otherChats(); } catch (err) { console.warn(LOG, err); }
+            if (!ids.length) { body.innerHTML = `<p class="cpm-edit-sub">${e(tr`No other chats for this character.`)}</p>`; return; }
+            const touch = matchMedia('(pointer: coarse)').matches;
+            body.innerHTML = `<input type="search" class="text_pole cpm-search" placeholder="${e(tr`Search`)}">
+                <p class="cpm-edit-sub cpm-pick-hint">${e(touch ? tr`Pick many: long-press, then drag` : tr`Pick many: drag · Shift+click for a range`)}</p>
+                <ul class="cpm-checks cpm-chats">${ids.map(id => row(id, id, false, STORE.chats[id] ? `<small class="cpm-pend">${e(tr`has settings`)}</small>` : '')).join('')}</ul>
+                <div class="cpm-copy-bar"><label class="cpm-all"><input type="checkbox"><span>${e(tr`All`)}</span></label><button type="button" class="menu_button cpm-apply" disabled>${e(tr`Apply`)}</button></div>`;
+            const boxes = () => [...body.querySelectorAll('.cpm-chats input')];
+            const btn = body.querySelector('.cpm-apply');
+            const sync = () => { const n = boxes().filter(x => x.checked).length; btn.disabled = !n; btn.textContent = n ? tr`Apply to ${n}` : tr`Apply`; };
+            body.querySelector('.cpm-all input').addEventListener('change', x => { boxes().filter(b => !b.closest('li').hidden).forEach(b => { b.checked = x.target.checked; }); sync(); });
+            boxes().forEach(b => b.addEventListener('change', sync));
+            // 여러 개 고르기: 마우스는 누른 채 끌기 · Shift+클릭 범위, 터치는 길게 누른 뒤 끌기 (짧게 누르면 하나)
+            const ul = body.querySelector('.cpm-chats'), lis = () => [...ul.querySelectorAll('li')];
+            let last = null, paint = null, press = null;
+            const setLi = (li, on) => { const b = li.querySelector('input'); if (b && !li.hidden) b.checked = on; };
+            ul.addEventListener('click', ev => ev.preventDefault());
+            ul.addEventListener('pointerdown', ev => {
+                const li = ev.target.closest('li'); if (!li || ev.button !== 0) return;
+                const idx = lis().indexOf(li), on = !li.querySelector('input').checked;
+                if (ev.pointerType !== 'mouse') {
+                    press = { li, idx, x: ev.clientX, y: ev.clientY, long: false };
+                    press.t = setTimeout(() => { if (!press) return; press.long = true; paint = on; setLi(li, on); last = idx; sync(); navigator.vibrate?.(12); }, 450);
+                    return;
+                }
+                ev.preventDefault();
+                if (ev.shiftKey && last != null) { const [a, z] = [Math.min(last, idx), Math.max(last, idx)]; lis().slice(a, z + 1).forEach(x => setLi(x, on)); }
+                else { setLi(li, on); paint = on; }
+                last = idx; sync();
+            });
+            ul.addEventListener('pointerover', ev => { if (paint === null || press) return; const li = ev.target.closest('li'); if (li) { setLi(li, paint); sync(); } });
+            ul.addEventListener('pointermove', ev => { if (press && !press.long && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 8) { clearTimeout(press.t); press = null; } });
+            ul.addEventListener('touchmove', ev => {
+                if (!press?.long) return;
+                ev.preventDefault();
+                const t = ev.touches[0], li = document.elementFromPoint(t.clientX, t.clientY)?.closest?.('li');
+                if (li && ul.contains(li)) { setLi(li, paint); sync(); }
+            }, { passive: false });
+            ul.addEventListener('pointerup', () => { if (press && !press.long) { clearTimeout(press.t); setLi(press.li, !press.li.querySelector('input').checked); last = press.idx; sync(); press = null; } });
+            ul.addEventListener('touchend', () => { if (press?.long) { press = null; paint = null; } });
+            ul.addEventListener('contextmenu', ev => { if (ev.target.closest('li')) ev.preventDefault(); });
+            const stop = () => { paint = null; };
+            document.addEventListener('pointerup', stop);
+            search(body, () => body.querySelectorAll('.cpm-chats li'));
+            btn.addEventListener('click', () => {
+                const mem = memory(); if (!mem) return;
+                const copy = structuredClone(mem); delete copy.at; delete copy.off;
+                const picked = boxes().filter(x => x.checked).map(x => x.dataset.k);
+                picked.forEach(id => { STORE.chats[id] = { ...structuredClone(copy), at: Date.now() }; dirty.add(id); });
+                scheduleStore(true);   // 저장소 파일 하나만 씀 — 고른 채팅 파일은 열지도 쓰지도 않음
+                toastr.success(tr`Applied to ${picked.length} chats. They switch to these settings when opened.`, tr`Chat Preset Memory`);
+                paintCopy();
+            });
+        });
+    };
+
     // 위 스위치 · 알약: 막대와 같음 — 켜면 그 칸이 바로 나타남
     const paintTop = () => {
         const on = !memory()?.off;
@@ -455,20 +659,36 @@ async function showMemory() {
         if (next.world) await refreshEntries();
         store(snapshot(next), { kinds: next });
         kinds = next;
-        paintTop(); paintToggles(); paintRegex(); await paintWorld();
+        paintTop(); paintToggles(); paintRegex(); paintConnection(); paintCopy(); await paintWorld();
     }));
-    paintTop(); paintToggles(); paintRegex(); await paintWorld();
+    paintTop(); paintToggles(); paintRegex(); paintConnection(); paintCopy(); await paintWorld();
     await ctx().callGenericPopup(root, ctx().POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
     if (regexChanged) await ctx().reloadCurrentChat();   // 바뀐 정규식으로 채팅을 다시 그림
     renderBar();
 }
 
-const KIND_LABEL = { toggles: () => tr`Preset · toggles`, world: () => tr`World info`, regex: () => tr`Regex` };
+const KIND_LABEL = { toggles: () => tr`Preset · toggles`, world: () => tr`World info`, regex: () => tr`Regex`, connection: () => tr`Connection` };
+
+/** 이 캐릭터(그룹)의 다른 채팅 id — 이름만 받음(내용은 안 읽음) */
+async function otherChats() {
+    const c = ctx(), here = c.getCurrentChatId();
+    if (c.groupId) return (c.groups?.find(g => g.id === c.groupId)?.chats || []).filter(id => id !== here);
+    const avatar = c.characters?.[c.characterId]?.avatar;
+    if (!avatar) return [];
+    const res = await fetch('/api/characters/chats', { method: 'POST', headers: c.getRequestHeaders(), body: JSON.stringify({ avatar_url: avatar, simple: true }) });
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : Object.values(data || {});
+    return list.map(x => String(x.file_name || '').replace(/\.jsonl$/, '')).filter(id => id && id !== here).sort().reverse();
+}
 function renderBar() {
     const list = document.getElementById('completion_prompt_manager_list');
     const host = document.getElementById('completion_prompt_manager');
     document.querySelectorAll('.cpm-bar').forEach(el => el.remove());
-    if (!list || !host || ctx().mainApi !== 'openai' || !ctx().getCurrentChatId()) return;
+    const here = document.getElementById('cpm_here');
+    if (here) here.innerHTML = ctx().getCurrentChatId() && ctx().mainApi === 'openai' ? '' : `<small class="cpm-help">${tr`Open a chat (Chat Completion) to see what it remembers.`}</small>`;
+    if (ctx().mainApi !== 'openai' || !ctx().getCurrentChatId()) return;
+    const inPanel = settings().showBar && list && host;
+    if (!inPanel && !here) return;
     const enabled = settings().enabled;
     const mem = memory();
     const on = enabled && !mem?.off;
@@ -482,10 +702,22 @@ function renderBar() {
         <label class="cpm-switch" title="${e(hint)}">
             <input type="checkbox" role="switch" ${on ? 'checked' : ''} ${enabled ? '' : 'disabled'}>
             <span class="cpm-track" aria-hidden="true"></span>
-            <span class="cpm-text sr-only">${e(tr`Remember this chat`)}</span>
+            <span class="cpm-text">${e(tr`Remember this chat`)}</span>
         </label>
         <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${KINDS.map(k => `<button type="button" class="cpm-kind" data-kind="${k}" aria-pressed="${!!kinds[k]}" ${on ? '' : 'disabled'}>${e(KIND_LABEL[k]())}</button>`).join('')}</span>
         <button type="button" class="cpm-info-btn" title="${e(tr`What this chat remembers`)}" aria-label="${e(tr`What this chat remembers`)}"><i class="fa-solid fa-circle-info"></i></button>`;
+    bindBar(bar);
+    // 확장 설정 칸에는 늘 · 프롬프트 목록 위에는 설정을 켰을 때만 (같은 막대 두 벌)
+    if (here) here.append(bar);
+    if (inPanel) {
+        const copy = bar.cloneNode(true);
+        bindBar(copy);
+        // 다른 확장의 도구 줄(예: 프롬프트 그룹)이 먼저 붙어 있어도 늘 그 위에 — 나중에 붙느라 자리가 바뀌지 않게
+        (host.querySelector('.pf-toolbar') ?? list).before(copy);
+    }
+}
+
+function bindBar(bar) {
     bar.querySelector('input').addEventListener('change', ev => {
         store(snapshot(), { off: !ev.target.checked });
     });
@@ -495,8 +727,6 @@ function renderBar() {
         if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`, tr`Chat Preset Memory`);
         (next.world ? refreshEntries() : Promise.resolve()).then(() => store(snapshot(next), { kinds: next }));   // 켠 종류는 지금 상태부터 기억
     }));
-    // 다른 확장의 도구 줄(예: 프롬프트 그룹)이 먼저 붙어 있어도 늘 그 위에 — 나중에 붙느라 자리가 바뀌지 않게
-    (host.querySelector('.pf-toolbar') ?? list).before(bar);
 }
 
 let barTimer = null;
@@ -504,7 +734,7 @@ function watchPromptManager() {
     const host = document.getElementById('completion_prompt_manager');
     if (!host) return void setTimeout(watchPromptManager, 1000);
     new MutationObserver(() => {
-        if (host.querySelector('.cpm-bar') || !document.getElementById('completion_prompt_manager_list')) return;
+        if (!settings().showBar || host.querySelector('.cpm-bar') || !document.getElementById('completion_prompt_manager_list')) return;
         clearTimeout(barTimer);
         barTimer = setTimeout(renderBar, 20);
     }).observe(host, { childList: true, subtree: true });
@@ -519,7 +749,7 @@ async function addSettingsPanel() {
     const html = await (await fetch(new URL('settings.html', import.meta.url))).text();
     host.insertAdjacentHTML('beforeend', html);
     const s = settings();
-    for (const key of ['enabled', 'restorePreset', 'charDefault', 'notify']) {
+    for (const key of ['enabled', 'restorePreset', 'charDefault', 'notify', 'showBar']) {
         const cb = document.getElementById(`cpm_${key}`);
         if (!cb) continue;
         cb.checked = !!s[key];
@@ -547,15 +777,22 @@ async function addSettingsPanel() {
 jQuery(async () => {
     settings();
     await loadKo();
+    loadStore();
     try { await addSettingsPanel(); } catch (err) { console.warn(LOG, 'settings panel', err); }
     const { eventSource, event_types } = ctx();
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
+    // 채팅 이름을 바꾸면 기억도 새 이름으로, 지우면 기억도 지움
+    const bare = n => String(n || '').replace(/\.jsonl$/, '');
+    eventSource.on(event_types.CHAT_RENAMED, async d => { await loadStore(); const a = bare(d?.oldFileName), b = bare(d?.newFileName); if (a && b && STORE.chats[a]) { putMemory(b, STORE.chats[a]); putMemory(a, undefined); } });
+    for (const ev of [event_types.CHAT_DELETED, event_types.GROUP_CHAT_DELETED]) if (ev) eventSource.on(ev, async name => { await loadStore(); const id = bare(name); if (STORE.chats[id]) putMemory(id, undefined); });
     eventSource.on(event_types.SETTINGS_UPDATED, remember);
     // 로어북 항목을 켜고 끄면(월드인포 편집 창) 그 상태를 기억
     eventSource.on(event_types.WORLDINFO_UPDATED, () => { if (!restoring && kindsOf().world) refreshEntries().then(remember); });
     // 프리셋을 바꾸는 동안(설정이 여러 번 저장됨)은 기억하지 않다가, 다 바뀐 뒤 그 프리셋 기준으로 처리
     eventSource.on(event_types.OAI_PRESET_CHANGED_BEFORE, () => { if (!restoring) switching = true; });
     eventSource.on(event_types.OAI_PRESET_CHANGED_AFTER, () => setTimeout(onPresetChanged, 300));
+    // 연결 프로필 · 공급자 · 모델을 바꾸면 (연결을 기억하는 채팅에서) 기억
+    for (const ev of [event_types.CONNECTION_PROFILE_LOADED, event_types.CHATCOMPLETION_SOURCE_CHANGED, event_types.CHATCOMPLETION_MODEL_CHANGED]) if (ev) eventSource.on(ev, () => { if (kindsOf().connection) remember(); });
     eventSource.on(event_types.GENERATION_STARTED, (type, _opts, dryRun) => {
         if (!dryRun && type !== 'quiet') remember();
     });
