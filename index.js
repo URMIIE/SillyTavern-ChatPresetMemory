@@ -490,6 +490,7 @@ async function showMemory() {
     const root = document.createElement('div');
     root.className = 'cpm-info cpm-edit';
     let regexChanged = false;
+    const closed = new AbortController();   // 창이 닫히면 문서에 붙인 이벤트도 뗌
     root.innerHTML = `
         <h3>${e(tr`What this chat remembers`)}</h3>
         <p class="cpm-edit-sub">${e(tr`Changes here apply right away, and this chat remembers them.`)}</p>
@@ -503,6 +504,23 @@ async function showMemory() {
         <div class="cpm-sec" data-sec="connection"></div>
         <div class="cpm-sec cpm-copy" data-sec="copy"></div>`;
     const sec = k => root.querySelector(`[data-sec="${k}"]`);
+    // 칸을 다시 그려도 펼친 줄 · 목록 스크롤 · 창 스크롤은 그대로
+    const keep = async (k, paint) => {
+        const box = sec(k);
+        const titleOf = d => d.querySelector(':scope > summary .cpm-g-title')?.textContent;
+        const was = new Map([...box.querySelectorAll('details.cpm-group')].map(d => [titleOf(d), { open: d.open, top: d.querySelector('.cpm-checks')?.scrollTop ?? 0 }]));
+        const pane = root.closest('.popup-content');
+        const top = pane?.scrollTop;
+        await paint();
+        box.querySelectorAll('details.cpm-group').forEach(d => {
+            const w = was.get(titleOf(d));
+            if (!w) return;
+            if (w.open) d.open = true;
+            const ul = d.querySelector('.cpm-checks');
+            if (ul) ul.scrollTop = w.top;
+        });
+        if (pane && top != null) pane.scrollTop = top;
+    };
     const search = (box, rows) => {
         const inp = box.querySelector('.cpm-search');
         inp?.addEventListener('input', () => { const q = inp.value.trim().toLowerCase(); rows().forEach(li => { li.hidden = !!q && !li.textContent.toLowerCase().includes(q); }); });
@@ -532,11 +550,16 @@ async function showMemory() {
             remember();
             cb.closest('details').querySelector('.cpm-count').textContent = tr`${order.filter(x => x.enabled).length} on`;
         }));
+        // 지우기는 그 줄만 뺌 (다시 그리면 펼친 칸이 접히고 스크롤이 튐)
         box.querySelectorAll('.cpm-forget').forEach(btn => btn.addEventListener('click', () => {
             const m = memory(); if (!m?.byPreset) return;
             delete m.byPreset[btn.dataset.p];
             putMemory(ctx().getCurrentChatId(), m);
-            paintToggles();
+            const details = btn.closest('details');
+            btn.closest('li').remove();
+            const left = details.querySelectorAll('.cpm-others li').length;
+            if (left) details.querySelector('.cpm-count').textContent = String(left);
+            else details.remove();
         }));
         box.querySelectorAll('details').forEach(d => search(d, () => d.querySelectorAll('.cpm-checks li')));
     };
@@ -563,7 +586,7 @@ async function showMemory() {
         box.querySelectorAll('ul[data-global] input').forEach(cb => cb.addEventListener('change', () => {
             const want = [...box.querySelectorAll('ul[data-global] input:checked')].map(x => x.dataset.k);
             applyWorld(want);
-            refreshEntries().then(() => { remember(); paintWorld(); });
+            refreshEntries().then(() => { remember(); keep('world', paintWorld); });
         }));
         box.querySelectorAll('ul[data-book] input').forEach(cb => cb.addEventListener('change', async () => {
             const book = cb.closest('ul').dataset.book;
@@ -677,7 +700,7 @@ async function showMemory() {
             ul.addEventListener('touchend', () => { if (press?.long) { press = null; paint = null; } });
             ul.addEventListener('contextmenu', ev => { if (ev.target.closest('li')) ev.preventDefault(); });
             const stop = () => { paint = null; };
-            document.addEventListener('pointerup', stop);
+            document.addEventListener('pointerup', stop, { signal: closed.signal });
             search(body, () => body.querySelectorAll('.cpm-chats li'));
             btn.addEventListener('click', () => {
                 const mem = memory(); if (!mem) return;
@@ -700,17 +723,19 @@ async function showMemory() {
         root.querySelectorAll('.cpm-edit-top .cpm-kind').forEach(b => { b.setAttribute('aria-pressed', String(!!kinds[b.dataset.kind])); b.disabled = !on; });
         root.querySelectorAll('.cpm-sec').forEach(x => x.classList.toggle('cpm-dim', !on));
     };
-    root.querySelector('.cpm-edit-on').addEventListener('change', ev => { store(snapshot(), { off: !ev.target.checked }); paintTop(); });
+    root.querySelector('.cpm-edit-on').addEventListener('change', ev => { store(snapshot(), { off: !ev.target.checked }); paintTop(); keep('copy', () => paintCopy()); });
     root.querySelectorAll('.cpm-edit-top .cpm-kind').forEach(btn => btn.addEventListener('click', async () => {
         const next = { ...kindsOf(), [btn.dataset.kind]: btn.getAttribute('aria-pressed') !== 'true' };
         if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`, tr`Chat Preset Memory`);
         if (next.world) await refreshEntries();
         store(snapshot(next), { kinds: next });
         kinds = next;
-        paintTop(); paintToggles(); paintRegex(); paintConnection(); paintCopy(); await paintWorld();
+        paintTop();
+        await keep('toggles', paintToggles); await keep('regex', paintRegex); await keep('connection', paintConnection); await keep('world', paintWorld); await keep('copy', () => paintCopy());
     }));
     paintTop(); paintToggles(); paintRegex(); paintConnection(); paintCopy(); await paintWorld();
     await ctx().callGenericPopup(root, ctx().POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
+    closed.abort();
     if (regexChanged) await ctx().reloadCurrentChat();   // 바뀐 정규식으로 채팅을 다시 그림
     renderBar();
 }
