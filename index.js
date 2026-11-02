@@ -242,10 +242,12 @@ function store(snap, extra = {}) {
     putMemory(c.getCurrentChatId(), next, urgent);
     const key = charKey();
     if (key && settings().charDefault) {
-        const isNew = !settings().byChar[key];
-        settings().byChar[key] = merged(settings().byChar[key], snap);
-        if (isNew) renderChars();
-        c.saveSettingsDebounced();
+        const before = settings().byChar[key];
+        settings().byChar[key] = merged(before, snap);
+        if (!before) renderChars();
+        // 캐릭터별 마지막 설정은 새 채팅을 열 때만 쓰므로, 처음 적을 때와 프리셋이 바뀔 때만 바로 저장.
+        // 토글만 바뀌었으면 메모리에 두고 실리태번의 다음 설정 저장에 같이 실림 (토글마다 설정 파일 전체를 한 번 더 쓰던 것)
+        if (!before || nfc(before.preset) !== nfc(snap.preset)) c.saveSettingsDebounced();
     }
     renderBar();
 }
