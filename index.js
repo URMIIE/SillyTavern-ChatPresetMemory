@@ -617,10 +617,16 @@ async function showMemory() {
     const paintCopy = () => {
         const box = sec('copy');
         const on = !memory()?.off && !!memory();
-        box.innerHTML = `<details class="cpm-group"><summary><span class="cpm-g-title">${e(tr`Apply to other chats`)}</span><span class="cpm-count">${e(tr`This character`)}</span></summary>
+        box.innerHTML = `<details class="cpm-group"><summary><span class="cpm-g-title">${e(tr`Apply to other chats`)}</span><span class="cpm-count"></span></summary>
             <p class="cpm-edit-sub">${e(tr`The chats you pick switch to this chat's settings the next time you open them.`)}</p>
             <div class="cpm-copy-body"><button type="button" class="menu_button cpm-load">${e(tr`Show this character's chats`)}</button></div></details>`;
         box.querySelector('.cpm-load').disabled = !on;
+        // 오른쪽 숫자: 이 캐릭터의 다른 채팅 중 지금 이 채팅과 같은 설정을 기억하는 채팅 수 (= 적용된 채팅)
+        if (on) otherChats().then(ids => {
+            const n = ids.filter(id => sameMemory(STORE.chats[id], memory())).length;
+            const c = box.querySelector('.cpm-count');
+            if (c) c.textContent = n ? tr`${n} applied` : tr`None applied`;
+        }).catch(err => console.warn(LOG, err));
         box.querySelector('.cpm-load').addEventListener('click', async ev => {
             const body = box.querySelector('.cpm-copy-body');
             ev.target.disabled = true;
@@ -630,7 +636,7 @@ async function showMemory() {
             const touch = matchMedia('(pointer: coarse)').matches;
             body.innerHTML = `<input type="search" class="text_pole cpm-search" placeholder="${e(tr`Search`)}">
                 <p class="cpm-edit-sub cpm-pick-hint">${e(touch ? tr`Pick many: long-press, then drag` : tr`Pick many: drag · Shift+click for a range`)}</p>
-                <ul class="cpm-checks cpm-chats">${ids.map(id => row(id, id, false, STORE.chats[id] ? `<small class="cpm-pend">${e(tr`has settings`)}</small>` : '')).join('')}</ul>
+                <ul class="cpm-checks cpm-chats">${ids.map(id => row(id, id, false, sameMemory(STORE.chats[id], memory()) ? `<small class="cpm-pend">${e(tr`applied`)}</small>` : STORE.chats[id] ? `<small class="cpm-pend">${e(tr`has settings`)}</small>` : '')).join('')}</ul>
                 <div class="cpm-copy-bar"><label class="cpm-all"><input type="checkbox"><span>${e(tr`All`)}</span></label><button type="button" class="menu_button cpm-apply" disabled>${e(tr`Apply`)}</button></div>`;
             const boxes = () => [...body.querySelectorAll('.cpm-chats input')];
             const btn = body.querySelector('.cpm-apply');
@@ -706,6 +712,12 @@ async function showMemory() {
 const KIND_LABEL = { toggles: () => tr`Preset · toggles`, world: () => tr`World info`, regex: () => tr`Regex`, connection: () => tr`Connection` };
 
 /** 이 캐릭터(그룹)의 다른 채팅 id — 이름만 받음(내용은 안 읽음) */
+// 두 기억이 같은 설정인지 (기억한 시각 · 끔 표시는 빼고 비교)
+function sameMemory(a, b) {
+    if (!a || !b) return false;
+    const norm = v => Array.isArray(v) ? v.map(norm) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).filter(k => k !== 'at' && k !== 'off').sort().map(k => [k, norm(v[k])])) : v;
+    return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
+}
 async function otherChats() {
     const c = ctx(), here = c.getCurrentChatId();
     if (c.groupId) return (c.groups?.find(g => g.id === c.groupId)?.chats || []).filter(id => id !== here);
