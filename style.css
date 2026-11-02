@@ -190,3 +190,35 @@
 .cpm-settings .cpm-here-wrap { margin: 6px 0 10px; padding: 8px 10px; border: 1px solid var(--cpm-line, color-mix(in srgb, var(--SmartThemeBodyColor) 14%, transparent)); border-radius: 8px; }
 .cpm-settings .cpm-here-title { display: block; margin-bottom: 4px; font-size: .8em; opacity: .7; }
 .cpm-settings .cpm-bar { margin: 0; }
+/* 확장 설정 칸 「지금 채팅」: 폭이 좁으면 칩이 다음 줄로(잘리지 않게) */
+.cpm-settings .cpm-bar { flex-wrap: wrap; row-gap: 6px; }
+.cpm-settings .cpm-bar .cpm-kinds { flex-wrap: wrap; overflow: visible; }
+.cpm-char-default { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 4px 0; }
+.cpm-char-default .cpm-help { margin: 0 0 2px; }
+.cpm-char-default .menu_button { margin: 0; }
+/* 설정 칸: 캐릭터별 마지막 설정 목록 */
+.cpm-settings .cpm-chars { margin: 2px 0 0; align-self: stretch; border: 1px solid var(--cpm-line, color-mix(in srgb, var(--SmartThemeBodyColor) 14%, transparent)); border-radius: 8px; padding: 0 10px; }
+.cpm-settings .cpm-chars > summary { display: flex; align-items: center; gap: 8px; padding: 7px 0; list-style: none; cursor: pointer; }
+.cpm-settings .cpm-chars > summary::-webkit-details-marker { display: none; }
+.cpm-settings .cpm-chars > summary::before { content: '\25B8'; flex: none; opacity: .6; transition: transform .2s ease; }
+.cpm-settings .cpm-chars[open] > summary::before { transform: rotate(90deg); }
+.cpm-settings .cpm-chars .cpm-g-title { flex: 1; min-width: 0; }
+.cpm-settings .cpm-chars .cpm-count { flex: none; opacity: .65; font-size: .88em; }
+.cpm-settings .cpm-chars[open] { padding-bottom: 6px; }
+.cpm-settings .cpm-chars::details-content { block-size: 0; overflow: clip; opacity: 0; transition: block-size .22s ease, opacity .18s ease, content-visibility .22s allow-discrete; }
+.cpm-settings .cpm-chars[open]::details-content { block-size: auto; opacity: 1; }
+.cpm-char-list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; }
+.cpm-char-list li { display: flex; align-items: center; gap: 8px; padding: 5px 2px; }
+.cpm-char-list li + li { border-top: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent); }
+.cpm-char-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cpm-char-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpm-char-name small { opacity: .6; font-size: .8em; margin-left: 4px; }
+.cpm-char-sub { font-size: .82em; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpm-char-del { flex: none; width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: inherit; opacity: .45; cursor: pointer; font-size: .95em; }
+.cpm-char-del:hover, .cpm-char-del:focus-visible { opacity: 1; background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent); }
+.cpm-char-empty { opacity: .6; font-size: .9em; }
+.cpm-char-foot { display: flex; justify-content: flex-end; padding-top: 4px; }
+.cpm-char-foot[hidden] { display: none; }
+.cpm-link { border: 0; background: none; color: inherit; opacity: .7; font-size: .85em; text-decoration: underline; cursor: pointer; padding: 2px 4px; }
+.cpm-link:hover { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .cpm-settings .cpm-chars::details-content, .cpm-settings .cpm-chars > summary::before { transition: none; } }

@@ -33,9 +33,13 @@ function tr(strings, ...values) {
 
 function settings() {
     const all = ctx().extensionSettings;
-    all[MODULE] = Object.assign({}, structuredClone(DEFAULTS), all[MODULE]);
+    // 같은 객체를 그대로 씀(부를 때마다 새로 만들면, 한 줄에서 두 번 부를 때 앞 객체에 쓴 값이 사라짐)
+    if (!all[MODULE] || typeof all[MODULE] !== 'object') all[MODULE] = {};
+    for (const [k, v] of Object.entries(DEFAULTS)) if (!(k in all[MODULE])) all[MODULE][k] = structuredClone(v);
     if (!all[MODULE].byChar || typeof all[MODULE].byChar !== 'object') all[MODULE].byChar = {};
     if (!all[MODULE].pending || typeof all[MODULE].pending !== 'object') all[MODULE].pending = {};
+    // 「켜기」 · 「마지막 프리셋으로도 바꾸기」는 설정 칸에서 뺌 — 늘 켬 (확장 전체는 실리태번 확장 관리에서 끔)
+    all[MODULE].enabled = true; all[MODULE].restorePreset = true;
     // 「프롬프트 목록 위에도 설정 보이기」 기본값이 꺼짐이던 때 저장된 값은 한 번만 켬
     if (!all[MODULE].showBarSet) { all[MODULE].showBar = true; all[MODULE].showBarSet = true; }
     all[MODULE].kinds = { ...DEFAULTS.kinds, ...(all[MODULE].kinds || {}) };
@@ -64,8 +68,25 @@ function loadStore() {
         try { const r = await fetch(`/user/files/${STORE_FILE}`, { cache: 'no-store' }); if (r.ok) STORE = await r.json(); } catch { /* 처음엔 없음 */ }
         if (!STORE || typeof STORE !== 'object') STORE = {};
         if (!STORE.chats || typeof STORE.chats !== 'object') STORE.chats = {};
+        // 예전 형식에서 옮겨 온 기억 정리(한 번): byPreset 에 있는 토글을 또 담은 toggles · 안 쓰는 locked 칸을 뺌 → 파일이 반쯤으로
+        for (const [id, m] of Object.entries(STORE.chats)) {
+            if (!m || typeof m !== 'object') continue;
+            const slim = compact(m);
+            if (slim !== m) { STORE.chats[id] = slim; dirty.add(id); }
+        }
+        if (dirty.size) scheduleStore(false);
     })();
     return storeReady;
+}
+/** 기억 하나를 가볍게: 같은 토글을 두 번 담지 않고 쓰지 않는 칸을 뺌 (바뀐 게 없으면 같은 객체) */
+function compact(m) {
+    const extra = 'locked' in m;
+    const dup = m.toggles && m.byPreset && Object.entries(m.byPreset).some(([k]) => nfc(k) === nfc(m.preset));
+    if (!extra && !dup) return m;
+    const out = { ...m };
+    delete out.locked;
+    if (dup) delete out.toggles;
+    return out;
 }
 /** 바뀐 채팅만 — 저장 직전에 파일을 다시 읽어 다른 탭 · 기기의 기억을 덮지 않음 */
 async function saveStore() {
@@ -199,11 +220,15 @@ function merged(prev, snap, extra = {}) {
 
 // 채팅을 바꾸는 중·맞추는 중·프리셋을 바꾸는 중에는 기억하지 않음 (다른 채팅·다른 프리셋 상태가 섞이지 않게)
 let ready = false;
+// 기억을 시작한 채팅 — 실리태번이 「지금 채팅」을 먼저 바꾸고 「채팅 바뀜」 신호는 늦게 보내서, 그 틈에 앞 채팅 상태가 새 채팅 기억으로 들어가지 않게
+let readyChat = null;
+const sameChat = () => ready && readyChat === ctx().getCurrentChatId();
 let restoring = false;
 let switching = false;
 
 function store(snap, extra = {}) {
     const c = ctx();
+    if (!sameChat()) return;
     const prev = memory();
     const next = merged(prev, snap, extra);
     // 프리셋이 바뀌었거나 켬/끔을 바꿨으면 바로 저장(그 사이 채팅을 옮겨도 예전 프리셋으로 돌아가지 않게),
@@ -215,7 +240,9 @@ function store(snap, extra = {}) {
     putMemory(c.getCurrentChatId(), next, urgent);
     const key = charKey();
     if (key && settings().charDefault) {
+        const isNew = !settings().byChar[key];
         settings().byChar[key] = merged(settings().byChar[key], snap);
+        if (isNew) renderChars();
         c.saveSettingsDebounced();
     }
     renderBar();
@@ -231,10 +258,10 @@ const sameAsMemory = (mem, snap) => !!mem && nfc(mem.preset) === nfc(snap.preset
 /** 바꿀 때마다 기억 (이 채팅 기억을 끈 경우는 제외) */
 let saveTimer = null;
 function remember() {
-    if (!ready || restoring || switching || !usable()) return;
+    if (!sameChat() || restoring || switching || !usable()) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-        if (!ready || restoring || switching || !usable()) return;
+        if (!sameChat() || restoring || switching || !usable()) return;
         const mem = memory();
         if (mem?.off) return;
         const now = snapshot();
@@ -317,8 +344,10 @@ async function applyRegex(state) {
 }
 
 /** 채팅을 열 때: 마지막 프리셋으로 바꾸고(설정에 따라), 그 프리셋에서 기억한 토글을 맞춤 */
-async function restore(mem, label) {
+async function restore(mem, label, my) {
     const chatId = ctx().getCurrentChatId();
+    // 그 사이 다른 채팅을 열었으면 멈춤 (빠르게 옮길 때 앞 채팅 설정이 늦게 덮지 않게)
+    const stale = () => ctx().getCurrentChatId() !== chatId || (my !== undefined && my !== seq);
     const notes = [];
     restoring = true;
     const kinds = kindsOf(mem);
@@ -328,7 +357,7 @@ async function restore(mem, label) {
     try {
         // 연결 먼저 — 연결 프로필이 프리셋까지 바꿀 수 있어서, 그 뒤에 프리셋 · 토글을 맞춤
         if (kinds.connection && await applyConnection(mem.connection)) notes.push(tr`Connection: ${connectionLabel(mem.connection)}`);
-        if (ctx().getCurrentChatId() !== chatId) return;
+        if (stale()) return;
         if (kinds.toggles && settings().restorePreset && mem.preset && nfc(mem.preset) !== nfc(currentPreset())) {
             if (!(await switchPreset(mem.preset))) {
                 toastr.warning(tr`Saved preset "${mem.preset}" was not found.`, tr`Chat Preset Memory`);
@@ -336,17 +365,19 @@ async function restore(mem, label) {
             }
             notes.push(tr`Preset: ${mem.preset}`);
         }
-        if (ctx().getCurrentChatId() !== chatId) return;
+        if (stale()) return;
         if (kinds.toggles) {
             const changed = await applyToggles(togglesFor(mem, currentPreset()));
             if (changed) notes.push(tr`${changed} toggles`);
         }
+        if (stale()) return;
         if (kinds.world) {
             const books = applyWorld(mem.world);
             const entries = await applyEntries(mem.entries);
             if (books || entries) notes.push(entries ? tr`World info ${entries}` : tr`World info`);
             await refreshEntries();
         }
+        if (stale()) return;
         if (kinds.regex) {
             regexChanged = await applyRegex(mem.regex);
             if (regexChanged) notes.push(tr`${regexChanged} regex`);
@@ -387,7 +418,7 @@ async function undoRestore(before, kinds, chatId) {
 /** 채팅 안에서 사용자가 프리셋을 바꿨을 때: 이 채팅에서 그 프리셋으로 기억한 토글이 있으면 맞추고, 그 상태를 기억 */
 async function onPresetChanged() {
     switching = false;
-    if (!ready || restoring || !usable()) return;
+    if (!sameChat() || restoring || !usable()) return;
     const mem = memory();
     if (mem && !mem.off && kindsOf(mem).toggles) {
         restoring = true;
@@ -406,9 +437,11 @@ async function onPresetChanged() {
 }
 
 let seq = 0;
+let running = Promise.resolve();
 async function onChatChanged() {
     const my = ++seq;
-    ready = false;
+    ready = false; readyChat = null;
+    clearTimeout(saveTimer);
     renderBar();
     await new Promise(r => setTimeout(r, 500));
     if (my !== seq) return;
@@ -421,25 +454,26 @@ async function onChatChanged() {
         // 분기(Branch)는 원래 채팅(main_chat)의 지금 기억을 물려받고, 그게 없으면 채팅 파일에 남은 예전 기억을 옮김
         const parent = ctx().chatMetadata?.main_chat && STORE.chats[ctx().chatMetadata.main_chat];
         const old = parent || ctx().chatMetadata?.[MODULE];
-        if (old) putMemory(chatId, { ...structuredClone(old), at: Date.now() }, false);
+        if (old) putMemory(chatId, compact({ ...structuredClone(old), at: Date.now() }), false);
     }
     // 로어북 파일 읽기는 월드인포를 기억하는 채팅에서만 (채팅을 열 때 일을 줄임)
     lastEntries = null;
     if (kindsOf().world) await refreshEntries();
+    // 앞 채팅의 맞추기가 아직 돌고 있으면 끝날 때까지 기다린 뒤 이 채팅 것을 맞춤
+    await running;
     if (my !== seq) return;
-    try {
-        if (usable()) {
-            const mem = memory();
-            const fallback = settings().charDefault ? settings().byChar[charKey()] : null;
-            if (mem && !mem.off) await restore(mem, tr`Restored this chat's settings`);
-            else if (!mem && fallback) await restore(fallback, tr`Started from this character's last settings`);
-        }
-    } catch (err) {
-        console.warn(LOG, err);
-    }
+    const job = (async () => {
+        if (!usable()) return;
+        const mem = memory();
+        const fallback = settings().charDefault ? settings().byChar[charKey()] : null;
+        if (mem && !mem.off) await restore(mem, tr`Restored this chat's settings`, my);
+        else if (!mem && fallback) await restore(fallback, tr`Started from this character's last settings`, my);
+    })().catch(err => console.warn(LOG, err));
+    running = job;
+    await job;
     await new Promise(r => setTimeout(r, 800));
     if (my !== seq) return;
-    ready = true;
+    ready = true; readyChat = ctx().getCurrentChatId();
     remember(); // a chat without memory starts remembering from now
     renderBar();
 }
@@ -743,13 +777,52 @@ function watchPromptManager() {
 
 // ---------------- Settings panel ----------------
 
+/** 설정 칸: 캐릭터별 마지막 설정 목록 — 한 줄씩 지우기(되돌리기 알림) */
+function renderChars() {
+    const box = document.getElementById('cpm_chars');
+    if (!box) return;
+    const c = ctx();
+    const byChar = settings().byChar;
+    const keys = Object.keys(byChar);
+    box.querySelector('.cpm-count').textContent = keys.length ? tr`${keys.length} characters` : tr`None`;
+    box.querySelector('.cpm-char-foot').hidden = !keys.length;
+    if (!box.open) return;
+    const nameOf = key => key.startsWith('group:')
+        ? c.groups?.find(g => String(g.id) === key.slice(6))?.name
+        : c.characters?.find(ch => ch.avatar === key)?.name;
+    const here = charKey();
+    const rows = keys.map(key => ({ key, name: nameOf(key), mem: byChar[key] }))
+        .sort((a, b) => (b.key === here) - (a.key === here) || (a.name ? 0 : 1) - (b.name ? 0 : 1) || String(a.name ?? a.key).localeCompare(String(b.name ?? b.key)));
+    const e = x => String(x ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
+    const list = box.querySelector('.cpm-char-list');
+    list.innerHTML = rows.length ? rows.map(r => `<li data-key="${e(r.key)}">
+        <span class="cpm-char-main"><span class="cpm-char-name">${e(r.name ?? (r.key.startsWith('group:') ? tr`Group` : r.key.replace(/\.png$/i, '')))}${r.key === here ? ` <small>${e(tr`now`)}</small>` : ''}${r.name ? '' : ` <small>${e(r.key.startsWith('group:') ? tr`deleted group` : tr`deleted`)}</small>`}</span>
+        <span class="cpm-char-sub">${e(r.mem?.preset || tr`No preset`)}</span></span>
+        <button type="button" class="cpm-char-del fa-solid fa-xmark" title="${e(tr`Remove`)}" aria-label="${e(tr`Remove`)}"></button></li>`).join('')
+        : `<li class="cpm-char-empty">${e(tr`There are no character defaults yet.`)}</li>`;
+    list.querySelectorAll('.cpm-char-del').forEach(btn => btn.addEventListener('click', () => {
+        const key = btn.closest('li').dataset.key;
+        const old = settings().byChar[key];
+        if (!old) return;
+        const name = nameOf(key) ?? key;
+        delete settings().byChar[key];
+        ctx().saveSettingsDebounced();
+        renderChars();
+        const esc = x => String(x).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
+        toastr.success(`${esc(tr`Removed the last settings for ${name}.`)} <u>${esc(tr`Undo`)}</u>`, tr`Chat Preset Memory`, {
+            escapeHtml: false, timeOut: 8000, extendedTimeOut: 4000,
+            onclick: () => { if (!settings().byChar[key]) settings().byChar[key] = old; ctx().saveSettingsDebounced(); renderChars(); },
+        });
+    }));
+}
+
 async function addSettingsPanel() {
     const host = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
     if (!host || document.getElementById('cpm_settings')) return;
     const html = await (await fetch(new URL('settings.html', import.meta.url))).text();
     host.insertAdjacentHTML('beforeend', html);
     const s = settings();
-    for (const key of ['enabled', 'restorePreset', 'charDefault', 'notify', 'showBar']) {
+    for (const key of ['charDefault', 'notify', 'showBar']) {
         const cb = document.getElementById(`cpm_${key}`);
         if (!cb) continue;
         cb.checked = !!s[key];
@@ -765,12 +838,22 @@ async function addSettingsPanel() {
         cb.checked = !!s.kinds[k];
         cb.addEventListener('change', () => { settings().kinds = { ...settings().kinds, [k]: cb.checked }; ctx().saveSettingsDebounced(); renderBar(); });
     }
+    const charBox = document.getElementById('cpm_chars');
+    charBox?.addEventListener('toggle', () => { if (charBox.open) renderChars(); });
+    renderChars();
     document.getElementById('cpm_clear_chars')?.addEventListener('click', async () => {
         const n = Object.keys(settings().byChar).length;
+        if (!n) return;
         const ok = await ctx().callGenericPopup(tr`Clear the character defaults (${n})? Saved chat settings are kept.`, ctx().POPUP_TYPE.CONFIRM);
         if (!ok) return;
+        const undo = structuredClone(settings().byChar);
         settings().byChar = {};
         ctx().saveSettingsDebounced();
+        renderChars();
+        toastr.success(`${tr`Cleared ${n} character defaults.`} <u>${tr`Undo`}</u>`, tr`Chat Preset Memory`, {
+            escapeHtml: false, timeOut: 10000, extendedTimeOut: 4000,
+            onclick: () => { settings().byChar = { ...undo, ...settings().byChar }; ctx().saveSettingsDebounced(); renderChars(); toastr.info(tr`Restored the character defaults.`, tr`Chat Preset Memory`); },
+        });
     });
 }
 
