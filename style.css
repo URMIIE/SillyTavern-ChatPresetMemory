@@ -129,3 +129,6 @@
 .cpm-edit .cpm-count { flex: none; opacity: .65; font-size: .88em; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cpm-edit .cpm-group[open] { padding-bottom: 8px; }
 .cpm-edit .cpm-group .cpm-search { margin-top: 0; }
+
+/* 한국어 낱말이 줄 끝에서 쪼개지지 않게 */
+.cpm-bar, .cpm-edit, .cpm-settings { word-break: keep-all; overflow-wrap: anywhere; }

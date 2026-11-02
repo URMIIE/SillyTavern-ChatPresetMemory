@@ -269,7 +269,7 @@ async function restore(mem, label) {
     } finally {
         restoring = false;
     }
-    if (notes.length && settings().notify) toastr.info(notes.join(' · '), label, { timeOut: 2500 });
+    if (notes.length && settings().notify) toastr.info(`${label}: ${notes.join(' · ')}`, tr`Chat Preset Memory`, { timeOut: 2500 });
     // 화면에 그리는 정규식이 바뀌었으면 이 채팅을 한 번 다시 그림
     if (regexChanged && ctx().getCurrentChatId() === chatId) await ctx().reloadCurrentChat();
 }
@@ -283,7 +283,7 @@ async function onPresetChanged() {
         restoring = true;
         try {
             const changed = await applyToggles(togglesFor(mem, currentPreset()));
-            if (changed && settings().notify) toastr.info(tr`${changed} toggles`, tr`Restored this chat's toggles for this preset`, { timeOut: 2000 });
+            if (changed && settings().notify) toastr.info(`${tr`Restored this chat's toggles for this preset`}: ${tr`${changed} toggles`}`, tr`Chat Preset Memory`, { timeOut: 2000 });
         } finally {
             restoring = false;
         }
@@ -451,7 +451,7 @@ async function showMemory() {
     root.querySelector('.cpm-edit-on').addEventListener('change', ev => { store(snapshot(), { off: !ev.target.checked }); paintTop(); });
     root.querySelectorAll('.cpm-edit-top .cpm-kind').forEach(btn => btn.addEventListener('click', async () => {
         const next = { ...kindsOf(), [btn.dataset.kind]: btn.getAttribute('aria-pressed') !== 'true' };
-        if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`);
+        if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`, tr`Chat Preset Memory`);
         if (next.world) await refreshEntries();
         store(snapshot(next), { kinds: next });
         kinds = next;
@@ -492,7 +492,7 @@ function renderBar() {
     bar.querySelector('.cpm-info-btn').addEventListener('click', showMemory);
     bar.querySelectorAll('.cpm-kind').forEach(btn => btn.addEventListener('click', () => {
         const next = { ...kindsOf(), [btn.dataset.kind]: btn.getAttribute('aria-pressed') !== 'true' };
-        if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`);
+        if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`, tr`Chat Preset Memory`);
         (next.world ? refreshEntries() : Promise.resolve()).then(() => store(snapshot(next), { kinds: next }));   // 켠 종류는 지금 상태부터 기억
     }));
     // 다른 확장의 도구 줄(예: 프롬프트 그룹)이 먼저 붙어 있어도 늘 그 위에 — 나중에 붙느라 자리가 바뀌지 않게
