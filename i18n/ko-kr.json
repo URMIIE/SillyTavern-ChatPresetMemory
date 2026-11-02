@@ -79,5 +79,6 @@
     "Remove": "지우기",
     "Removed the last settings for ${0}.": "「${0}」의 마지막 설정을 지웠어요.",
     "deleted group": "지운 그룹",
-    "Group": "그룹"
+    "Group": "그룹",
+    "Saved model \"${0}\" was not found.": "기억한 모델 「${0}」을 찾지 못했어요."
 }

@@ -158,9 +158,11 @@ async function applyConnection(state) {
         await new Promise(r => setTimeout(r, 300));
     }
     if (state.model && getChatCompletionModel() !== state.model) {
-        const sel = [...document.querySelectorAll('select[id^="model_"][id$="_select"]')].find(x => x.offsetParent && [...x.options].some(o => o.value === state.model));
+        // API 연결 칸이 닫혀 있어도 찾게: 화면에 보이는지 말고 그 공급자 칸(data-source)의 모델 목록에서
+        const sel = [...document.querySelectorAll('select[id^="model_"][id$="_select"]')].find(x => String(x.closest('[data-source]')?.dataset.source || '').split(',').includes(state.source) && [...x.options].some(o => o.value === state.model));
         if (sel) $(sel).val(state.model).trigger('change');
         else if (state.source === 'custom') $('#custom_model_id').val(state.model).trigger('input');
+        if (getChatCompletionModel() !== state.model) toastr.warning(tr`Saved model "${state.model}" was not found.`, tr`Chat Preset Memory`);
     }
     return true;
 }
@@ -392,8 +394,8 @@ async function restore(mem, label, my) {
             onclick: () => undoRestore(before, kinds, chatId),
         });
     }
-    // 화면에 그리는 정규식이 바뀌었으면 이 채팅을 한 번 다시 그림
-    if (regexChanged && ctx().getCurrentChatId() === chatId) await ctx().reloadCurrentChat();
+    // 화면에 그리는 정규식이 바뀌었으면 이 채팅을 한 번 다시 그림 — 기다리지 않음(다시 그리기가 채팅 바뀜을 다시 부르고, 그게 이 맞추기가 끝나길 기다려서 서로 멈춤)
+    if (regexChanged && ctx().getCurrentChatId() === chatId) setTimeout(() => { if (ctx().getCurrentChatId() === chatId) ctx().reloadCurrentChat(); }, 0);
 }
 
 /** 채팅을 열며 바뀐 것을 그 전으로 — 되돌린 상태를 이 채팅이 기억함 */
