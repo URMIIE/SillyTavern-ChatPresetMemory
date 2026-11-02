@@ -53,7 +53,6 @@
     "Change the connection profile or model in SillyTavern's API panel; this chat follows it.": "연결 프로필이나 모델은 실리태번 API 화면에서 바꾸면, 이 채팅이 따라 기억해요.",
     "Apply to other chats": "다른 채팅에 적용",
     "The chats you pick switch to this chat's settings the next time you open them.": "고른 채팅은 다음에 열 때 이 채팅의 설정으로 바뀌어요.",
-    "Show this character's chats": "이 캐릭터의 채팅 보기",
     "No other chats for this character.": "이 캐릭터의 다른 채팅이 없어요.",
     "waiting": "적용 대기",
     "All": "모두",
@@ -83,5 +82,7 @@
     "This extension works only when you connect with a Chat Completion API.": "이 확장은 API를 「채팅 완성(Chat Completion)」으로 연결했을 때만 작동해요.",
     "${0} applied": "적용됨 ${0}개",
     "applied": "적용됨",
-    "None applied": "적용된 채팅 없음"
+    "None applied": "적용된 채팅 없음",
+    "Loading…": "불러오는 중…",
+    "Turn on remembering for this chat first.": "먼저 이 채팅 기억을 켜 주세요."
 }

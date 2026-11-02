@@ -614,24 +614,28 @@ async function showMemory() {
     };
 
     // 다른 채팅에 적용: 고른 채팅을 열 때 이 기억으로 바뀜 (지금 그 채팅 파일을 열거나 다시 쓰지 않음)
-    const paintCopy = () => {
+    const paintCopy = (open = false) => {
         const box = sec('copy');
         const on = !memory()?.off && !!memory();
-        box.innerHTML = `<details class="cpm-group"><summary><span class="cpm-g-title">${e(tr`Apply to other chats`)}</span><span class="cpm-count"></span></summary>
+        box.innerHTML = `<details class="cpm-group"${open ? ' open' : ''}><summary><span class="cpm-g-title">${e(tr`Apply to other chats`)}</span><span class="cpm-count"></span></summary>
             <p class="cpm-edit-sub">${e(tr`The chats you pick switch to this chat's settings the next time you open them.`)}</p>
-            <div class="cpm-copy-body"><button type="button" class="menu_button cpm-load">${e(tr`Show this character's chats`)}</button></div></details>`;
-        box.querySelector('.cpm-load').disabled = !on;
+            <div class="cpm-copy-body"><p class="cpm-edit-sub">${e(on ? tr`Loading…` : tr`Turn on remembering for this chat first.`)}</p></div></details>`;
+        if (!on) return;
+        // 이 캐릭터의 다른 채팅 목록은 한 번만 받아서 오른쪽 숫자와 펼친 목록에 같이 씀
+        const chats = otherChats().catch(err => { console.warn(LOG, err); return []; });
         // 오른쪽 숫자: 이 캐릭터의 다른 채팅 중 지금 이 채팅과 같은 설정을 기억하는 채팅 수 (= 적용된 채팅)
-        if (on) otherChats().then(ids => {
+        chats.then(ids => {
             const n = ids.filter(id => sameMemory(STORE.chats[id], memory())).length;
             const c = box.querySelector('.cpm-count');
             if (c) c.textContent = n ? tr`${n} applied` : tr`None applied`;
-        }).catch(err => console.warn(LOG, err));
-        box.querySelector('.cpm-load').addEventListener('click', async ev => {
+        });
+        const details = box.querySelector('details');
+        let shown = false;
+        const show = async () => {
+            if (shown || !details.open) return;
+            shown = true;
             const body = box.querySelector('.cpm-copy-body');
-            ev.target.disabled = true;
-            let ids = [];
-            try { ids = await otherChats(); } catch (err) { console.warn(LOG, err); }
+            const ids = await chats;
             if (!ids.length) { body.innerHTML = `<p class="cpm-edit-sub">${e(tr`No other chats for this character.`)}</p>`; return; }
             const touch = matchMedia('(pointer: coarse)').matches;
             body.innerHTML = `<input type="search" class="text_pole cpm-search" placeholder="${e(tr`Search`)}">
@@ -682,9 +686,11 @@ async function showMemory() {
                 picked.forEach(id => { STORE.chats[id] = { ...structuredClone(copy), at: Date.now() }; dirty.add(id); });
                 scheduleStore(true);   // 저장소 파일 하나만 씀 — 고른 채팅 파일은 열지도 쓰지도 않음
                 toastr.success(tr`Applied to ${picked.length} chats. They switch to these settings when opened.`, tr`Chat Preset Memory`);
-                paintCopy();
+                paintCopy(true);
             });
-        });
+        };
+        details.addEventListener('toggle', show);
+        show();
     };
 
     // 위 스위치 · 알약: 막대와 같음 — 켜면 그 칸이 바로 나타남
