@@ -752,7 +752,8 @@ async function showMemory() {
         } finally {
             restoring = false;
         }
-        putMemory(openChat, openMem);
+        // 기억이 실제로 바뀌었을 때만 되돌려 저장 (아무것도 안 바꾸고 취소하면 파일을 쓰지 않음)
+        if (JSON.stringify(STORE.chats[openChat]) !== JSON.stringify(openMem)) putMemory(openChat, openMem);
     }
     closed.abort();
     if (regexChanged) await ctx().reloadCurrentChat();   // 바뀐 정규식으로 채팅을 다시 그림
