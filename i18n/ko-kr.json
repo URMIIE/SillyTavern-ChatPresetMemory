@@ -40,5 +40,6 @@
     "Forget": "지우기",
     "Global regex": "전역 정규식",
     "Preset regex": "프리셋 정규식",
-    "No lorebook is attached to this chat.": "이 채팅에 걸린 로어북이 없어요."
+    "No lorebook is attached to this chat.": "이 채팅에 걸린 로어북이 없어요.",
+    "Other presets": "다른 프리셋에서 기억한 것"
 }

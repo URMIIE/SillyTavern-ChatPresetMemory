@@ -327,16 +327,17 @@ async function onChatChanged() {
 async function showMemory() {
     const mem = memory();
     const e = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-    const kinds = kindsOf(mem);
+    let kinds = kindsOf(mem);
     const root = document.createElement('div');
     root.className = 'cpm-info cpm-edit';
     let regexChanged = false;
-    const off = KINDS.filter(k => !kinds[k]).map(k => KIND_LABEL[k]());
     root.innerHTML = `
         <h3>${e(tr`What this chat remembers`)}</h3>
         <p class="cpm-edit-sub">${e(tr`Changes here apply right away, and this chat remembers them.`)}</p>
-        ${mem?.off ? `<p class="cpm-info-off">${e(tr`Remembering is off for this chat.`)}</p>` : ''}
-        ${off.length ? `<p class="cpm-edit-sub">${e(tr`Not remembered in this chat: ${off.join(', ')} (turn it on in the bar)`)}</p>` : ''}
+        <div class="cpm-edit-top">
+            <label class="cpm-switch"><input type="checkbox" role="switch" class="cpm-edit-on" ${mem?.off ? '' : 'checked'}><span class="cpm-track" aria-hidden="true"></span><span>${e(tr`Remember this chat`)}</span></label>
+            <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${KINDS.map(k => `<button type="button" class="cpm-kind" data-kind="${k}" aria-pressed="${!!kinds[k]}">${e(KIND_LABEL[k]())}</button>`).join('')}</span>
+        </div>
         <div class="cpm-sec" data-sec="toggles"></div>
         <div class="cpm-sec" data-sec="world"></div>
         <div class="cpm-sec" data-sec="regex"></div>`;
@@ -345,20 +346,22 @@ async function showMemory() {
         const inp = box.querySelector('.cpm-search');
         inp?.addEventListener('input', () => { const q = inp.value.trim().toLowerCase(); rows().forEach(li => { li.hidden = !!q && !li.textContent.toLowerCase().includes(q); }); });
     };
+    // 칸마다 같은 꼴: 접는 줄(제목 — 개수) 안에 검색 + 체크 목록
+    const group = (title, count, list, attrs = '') => `<details class="cpm-group"><summary><span class="cpm-g-title">${e(title)}</span><span class="cpm-count">${e(count)}</span></summary><input type="search" class="text_pole cpm-search" placeholder="${e(tr`Search`)}"><ul class="cpm-checks" ${attrs}>${list}</ul></details>`;
     const row = (key, name, on, extra = '') => `<li><label><input type="checkbox" data-k="${e(key)}" ${on ? 'checked' : ''}><span>${e(name)}</span>${extra}</label></li>`;
 
     // 프롬프트: 지금 프리셋 토글 켜고 끄기 + 다른 프리셋에 기억한 것 지우기
     const paintToggles = () => {
         const box = sec('toggles');
-        if (!kinds.toggles) { box.remove(); return; }
+        box.hidden = !kinds.toggles;
+        if (!kinds.toggles) { box.innerHTML = ''; return; }
         const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter) || [];
         const nameOf = id => promptManager.getPromptById(id)?.name || id;
         const others = Object.entries(memory()?.byPreset || {}).filter(([p]) => nfc(p) !== nfc(currentPreset()));
         box.innerHTML = `
-            <h4>${e(tr`Prompts`)} <small>${e(currentPreset())} · ${e(tr`${order.filter(x => x.enabled).length} on`)}</small></h4>
-            <input type="search" class="text_pole cpm-search" placeholder="${e(tr`Search`)}">
-            <ul class="cpm-checks">${order.filter(x => promptManager.getPromptById(x.identifier)).map(x => row(x.identifier, nameOf(x.identifier), x.enabled)).join('')}</ul>
-            ${others.length ? `<p class="cpm-edit-sub">${e(tr`Also remembered for other presets:`)}</p><ul class="cpm-others">${others.map(([p, t]) => `<li><span>${e(p)} — ${e(tr`${Object.values(t || {}).filter(Boolean).length} on`)}</span><button type="button" class="menu_button cpm-forget" data-p="${e(p)}">${e(tr`Forget`)}</button></li>`).join('')}</ul>` : ''}`;
+            <h4>${e(tr`Prompts`)}</h4>
+            ${group(currentPreset(), tr`${order.filter(x => x.enabled).length} on`, order.filter(x => promptManager.getPromptById(x.identifier)).map(x => row(x.identifier, nameOf(x.identifier), x.enabled)).join(''), 'data-kind="toggles"')}
+            ${others.length ? `<details class="cpm-group"><summary><span class="cpm-g-title">${e(tr`Other presets`)}</span><span class="cpm-count">${e(String(others.length))}</span></summary><ul class="cpm-others">${others.map(([p, t]) => `<li><span>${e(p)} — ${e(tr`${Object.values(t || {}).filter(Boolean).length} on`)}</span><button type="button" class="menu_button cpm-forget" data-p="${e(p)}">${e(tr`Forget`)}</button></li>`).join('')}</ul></details>` : ''}`;
         box.querySelectorAll('.cpm-checks input').forEach(cb => cb.addEventListener('change', () => {
             const entry = order.find(x => x.identifier === cb.dataset.k);
             if (!entry) return;
@@ -366,7 +369,7 @@ async function showMemory() {
             promptManager.render();
             Promise.resolve(promptManager.saveServiceSettings()).catch(err => console.warn(LOG, err));
             remember();
-            box.querySelector('h4 small').textContent = `${currentPreset()} · ${tr`${order.filter(x => x.enabled).length} on`}`;
+            cb.closest('details').querySelector('.cpm-count').textContent = tr`${order.filter(x => x.enabled).length} on`;
         }));
         box.querySelectorAll('.cpm-forget').forEach(btn => btn.addEventListener('click', () => {
             const m = memory(); if (!m?.byPreset) return;
@@ -374,13 +377,14 @@ async function showMemory() {
             ctx().saveMetadata?.();
             paintToggles();
         }));
-        search(box, () => box.querySelectorAll('.cpm-checks li'));
+        box.querySelectorAll('details').forEach(d => search(d, () => d.querySelectorAll('.cpm-checks li')));
     };
 
     // 월드인포: 전역 선택 + 이 채팅에 걸린 로어북 항목
     const paintWorld = async () => {
         const box = sec('world');
-        if (!kinds.world) { box.remove(); return; }
+        box.hidden = !kinds.world;
+        if (!kinds.world) { box.innerHTML = ''; return; }
         const selected = new Set(worldState());
         const books = activeBooks();
         const parts = [];
@@ -389,14 +393,14 @@ async function showMemory() {
             try { data = await ctx().loadWorldInfo(book); } catch { /* 없어진 로어북 */ }
             const entries = Object.entries(data?.entries || {});
             const on = entries.filter(([, x]) => !x.disable).length;
-            parts.push(`<details><summary>${e(book)} — ${e(tr`${on} on, ${entries.length - on} off`)}</summary><input type="search" class="text_pole cpm-search" placeholder="${e(tr`Search`)}"><ul class="cpm-checks" data-book="${e(book)}">${entries.map(([uid, x]) => row(uid, x.comment || (Array.isArray(x.key) ? x.key.slice(0, 3).join(', ') : '') || `#${uid}`, !x.disable)).join('')}</ul></details>`);
+            parts.push(group(book, tr`${on} on, ${entries.length - on} off`, entries.map(([uid, x]) => row(uid, x.comment || (Array.isArray(x.key) ? x.key.slice(0, 3).join(', ') : '') || `#${uid}`, !x.disable)).join(''), `data-book="${e(book)}"`));
         }
         box.innerHTML = `
             <h4>${e(tr`World info`)}</h4>
-            <details><summary>${e(tr`Global world info`)} — ${e(selected.size ? [...selected].join(', ') : tr`none`)}</summary><ul class="cpm-checks cpm-global">${(world_names || []).map(n => row(n, n, selected.has(n))).join('')}</ul></details>
-            ${parts.length ? `<p class="cpm-edit-sub">${e(tr`Lorebook entries`)}:</p>${parts.join('')}` : `<p class="cpm-edit-sub">${e(tr`No lorebook is attached to this chat.`)}</p>`}`;
-        box.querySelectorAll('.cpm-global input').forEach(cb => cb.addEventListener('change', () => {
-            const want = [...box.querySelectorAll('.cpm-global input:checked')].map(x => x.dataset.k);
+            ${group(tr`Global world info`, selected.size ? [...selected].join(', ') : tr`none`, (world_names || []).map(n => row(n, n, selected.has(n))).join(''), 'data-global="1"')}
+            ${parts.join('') || `<p class="cpm-edit-sub">${e(tr`No lorebook is attached to this chat.`)}</p>`}`;
+        box.querySelectorAll('ul[data-global] input').forEach(cb => cb.addEventListener('change', () => {
+            const want = [...box.querySelectorAll('ul[data-global] input:checked')].map(x => x.dataset.k);
             applyWorld(want);
             refreshEntries().then(() => { remember(); paintWorld(); });
         }));
@@ -410,7 +414,7 @@ async function showMemory() {
             ctx().reloadWorldInfoEditor?.(book);
             await refreshEntries(); remember();
             const all = Object.values(data.entries), n = all.filter(x => !x.disable).length;
-            cb.closest('details').querySelector('summary').textContent = `${book} — ${tr`${n} on, ${all.length - n} off`}`;
+            cb.closest('details').querySelector('.cpm-count').textContent = tr`${n} on, ${all.length - n} off`;
         }));
         box.querySelectorAll('details').forEach(d => search(d, () => d.querySelectorAll('.cpm-checks li')));
     };
@@ -418,11 +422,10 @@ async function showMemory() {
     // 정규식: 전역 · 프리셋 정규식 켜고 끄기
     const paintRegex = () => {
         const box = sec('regex');
-        if (!kinds.regex) { box.remove(); return; }
+        box.hidden = !kinds.regex;
+        if (!kinds.regex) { box.innerHTML = ''; return; }
         const groups = [[SCRIPT_TYPES.GLOBAL, tr`Global regex`], [SCRIPT_TYPES.PRESET, tr`Preset regex`]].map(([type, label]) => [type, label, getScriptsByType(type, { allowedOnly: false }) || []]);
-        box.innerHTML = `<h4>${e(tr`Regex`)}</h4>` + groups.map(([type, label, list]) => `
-            <details ${list.length ? '' : 'hidden'}><summary>${e(label)} — ${e(tr`${list.filter(x => !x.disabled).length} on, ${list.filter(x => x.disabled).length} off`)}</summary>
-            <ul class="cpm-checks" data-type="${type}">${list.map(x => row(x.id, x.scriptName || x.id, !x.disabled)).join('')}</ul></details>`).join('');
+        box.innerHTML = `<h4>${e(tr`Regex`)}</h4>` + groups.filter(g => g[2].length).map(([type, label, list]) => group(label, tr`${list.filter(x => !x.disabled).length} on, ${list.filter(x => x.disabled).length} off`, list.map(x => row(x.id, x.scriptName || x.id, !x.disabled)).join(''), `data-type="${type}"`)).join('');
         box.querySelectorAll('ul[data-type] input').forEach(cb => cb.addEventListener('change', async () => {
             const type = Number(cb.closest('ul').dataset.type);
             const list = getScriptsByType(type, { allowedOnly: false }) || [];
@@ -433,11 +436,28 @@ async function showMemory() {
             regexChanged = true;
             remember();
             const on = list.filter(x => !x.disabled).length;
-            cb.closest('details').querySelector('summary').textContent = `${groups.find(g => g[0] === type)[1]} — ${tr`${on} on, ${list.length - on} off`}`;
+            cb.closest('details').querySelector('.cpm-count').textContent = tr`${on} on, ${list.length - on} off`;
         }));
+        box.querySelectorAll('details').forEach(d => search(d, () => d.querySelectorAll('.cpm-checks li')));
     };
 
-    paintToggles(); paintRegex(); await paintWorld();
+    // 위 스위치 · 알약: 막대와 같음 — 켜면 그 칸이 바로 나타남
+    const paintTop = () => {
+        const on = !memory()?.off;
+        root.querySelector('.cpm-edit-on').checked = on;
+        root.querySelectorAll('.cpm-edit-top .cpm-kind').forEach(b => { b.setAttribute('aria-pressed', String(!!kinds[b.dataset.kind])); b.disabled = !on; });
+        root.querySelectorAll('.cpm-sec').forEach(x => x.classList.toggle('cpm-dim', !on));
+    };
+    root.querySelector('.cpm-edit-on').addEventListener('change', ev => { store(snapshot(), { off: !ev.target.checked }); paintTop(); });
+    root.querySelectorAll('.cpm-edit-top .cpm-kind').forEach(btn => btn.addEventListener('click', async () => {
+        const next = { ...kindsOf(), [btn.dataset.kind]: btn.getAttribute('aria-pressed') !== 'true' };
+        if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`);
+        if (next.world) await refreshEntries();
+        store(snapshot(next), { kinds: next });
+        kinds = next;
+        paintTop(); paintToggles(); paintRegex(); await paintWorld();
+    }));
+    paintTop(); paintToggles(); paintRegex(); await paintWorld();
     await ctx().callGenericPopup(root, ctx().POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
     if (regexChanged) await ctx().reloadCurrentChat();   // 바뀐 정규식으로 채팅을 다시 그림
     renderBar();

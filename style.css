@@ -1,4 +1,8 @@
 /* 채팅별 프리셋·토글 기억 — 프롬프트 목록 위 한 줄: [스위치] 이 채팅의 프리셋·토글 기억 */
+.cpm-edit {
+    --cpm-muted: color-mix(in srgb, var(--SmartThemeBodyColor) 58%, transparent);
+    --cpm-line: color-mix(in srgb, var(--SmartThemeBodyColor) 16%, transparent);
+}
 .cpm-bar {
     --cpm-muted: color-mix(in srgb, var(--SmartThemeBodyColor) 58%, transparent);
     --cpm-line: color-mix(in srgb, var(--SmartThemeBodyColor) 16%, transparent);
@@ -107,3 +111,21 @@
 .cpm-edit .cpm-others { list-style: none; padding: 0; margin: 0; }
 .cpm-edit .cpm-others li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; }
 .cpm-edit .cpm-others .menu_button { margin: 0; width: auto; padding: 3px 10px; font-size: .85em; }
+
+.cpm-edit .cpm-edit-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 2px; }
+.cpm-edit .cpm-edit-top .cpm-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.cpm-edit .cpm-edit-top .cpm-kinds { flex: 1 1 auto; display: flex; gap: 4px; }
+.cpm-edit .cpm-sec[hidden] { display: none; }
+.cpm-edit .cpm-sec.cpm-dim { opacity: .55; }
+.cpm-edit .cpm-edit-top .cpm-switch { flex: none; color: var(--SmartThemeBodyColor); }
+
+/* ⓘ 창: 칸마다 같은 접는 줄 */
+.cpm-edit .cpm-group { margin: 4px 0; border: 1px solid var(--cpm-line); border-radius: 8px; padding: 0 10px; }
+.cpm-edit .cpm-group > summary { display: flex; align-items: center; gap: 8px; padding: 7px 0; list-style: none; }
+.cpm-edit .cpm-group > summary::-webkit-details-marker { display: none; }
+.cpm-edit .cpm-group > summary::before { content: '\25B8'; flex: none; opacity: .6; transition: transform .15s; }
+.cpm-edit .cpm-group[open] > summary::before { transform: rotate(90deg); }
+.cpm-edit .cpm-g-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpm-edit .cpm-count { flex: none; opacity: .65; font-size: .88em; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpm-edit .cpm-group[open] { padding-bottom: 8px; }
+.cpm-edit .cpm-group .cpm-search { margin-top: 0; }
