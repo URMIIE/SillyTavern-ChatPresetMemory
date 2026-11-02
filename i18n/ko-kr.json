@@ -1,0 +1,23 @@
+{
+    "Chat Preset Memory": "채팅별 프리셋·토글 기억",
+    "Saved preset \"${0}\" was not found.": "기억한 프리셋 「${0}」을 찾지 못했어요.",
+    "Preset: ${0}": "프리셋: ${0}",
+    "${0} toggles": "토글 ${0}개",
+    "Restored this chat's settings": "이 채팅 설정으로 맞췄어요",
+    "Started from this character's last settings": "이 캐릭터의 마지막 설정으로 시작했어요",
+    "Not remembered yet": "아직 기억한 설정 없음",
+    "Clear the character defaults (${0})? Saved chat settings are kept.": "캐릭터 기본값 ${0}개를 지울까요? 채팅마다 기억한 설정은 그대로예요.",
+    "Saved preset: ${0}": "기억한 프리셋: ${0}",
+    "Don't remember anything for this chat": "이 채팅은 아무것도 기억하지 않아요",
+    "Chat preset memory is off. Turn it on in the extension settings.": "채팅별 기억이 꺼져 있어요. 확장 설정에서 켜 주세요.",
+    "Remember this chat's preset and toggles": "이 채팅의 프리셋·토글 기억",
+    "Restored this chat's toggles for this preset": "이 채팅에서 이 프리셋으로 쓰던 토글로 맞췄어요",
+    "What this chat remembers": "이 채팅이 기억한 설정",
+    "Remembering is off for this chat.": "이 채팅은 기억이 꺼져 있어요.",
+    "Last preset": "마지막 프리셋",
+    "the preset itself is not switched": "프리셋 자체는 바꾸지 않는 설정",
+    "Presets with remembered toggles": "토글을 기억한 프리셋",
+    "${0} on": "켜진 토글 ${0}개",
+    "Toggles on for the current preset (${0})": "지금 프리셋에서 켜 둔 토글 (${0}개)",
+    "Nothing remembered for the current preset yet.": "지금 프리셋으로는 아직 기억한 게 없어요."
+}
