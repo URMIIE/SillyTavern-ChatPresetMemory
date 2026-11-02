@@ -150,7 +150,7 @@
     background: color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
 }
 .cpm-bar .cpm-kind:hover:not(:disabled) { color: var(--SmartThemeBodyColor); border-color: color-mix(in srgb, var(--SmartThemeBodyColor) 30%, transparent); }
-.cpm-bar .cpm-info-btn { flex: none; margin-left: auto; width: 24px; height: 24px; font-size: .85em; border-radius: 6px; }
+.cpm-bar .cpm-info-btn { flex: none; margin-left: 2px; width: 24px; height: 24px; font-size: .85em; border-radius: 6px; }  /* ⓘ 는 「이 채팅 기억」 바로 옆 */
 @media (pointer: coarse) { .cpm-bar .cpm-kind { padding: 4px 11px; } .cpm-bar .cpm-info-btn { width: 30px; height: 30px; } }
 /* ⓘ 창: 연결 · 다른 채팅에 적용 */
 .cpm-edit .cpm-conn { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 2px 0 6px; font-size: .92em; }
@@ -222,3 +222,8 @@
 .cpm-link { border: 0; background: none; color: inherit; opacity: .7; font-size: .85em; text-decoration: underline; cursor: pointer; padding: 2px 4px; }
 .cpm-link:hover { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .cpm-settings .cpm-chars::details-content, .cpm-settings .cpm-chars > summary::before { transition: none; } }
+.cpm-settings .cpm-chars .cpm-search { margin: 0 0 6px; width: 100%; box-sizing: border-box; }
+.cpm-char-list li[hidden] { display: none; }
+/* 프롬프트 그룹 도구 줄 안에 들어갈 때 (스위치 · ⓘ 는 왼쪽 끝) */
+.cpm-bar.cpm-inpf { display: flex; align-items: center; flex: none; width: auto; min-height: 0; margin: 0; gap: 0; }
+.cpm-bar.cpm-inpf-switch { margin-right: auto; min-width: 0; }

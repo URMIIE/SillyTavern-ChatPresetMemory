@@ -721,7 +721,8 @@ function renderBar() {
     const host = document.getElementById('completion_prompt_manager');
     document.querySelectorAll('.cpm-bar').forEach(el => el.remove());
     const here = document.getElementById('cpm_here');
-    if (here) here.innerHTML = ctx().getCurrentChatId() && ctx().mainApi === 'openai' ? '' : `<small class="cpm-help">${tr`Open a chat (Chat Completion) to see what it remembers.`}</small>`;
+    if (here) here.innerHTML = ctx().mainApi !== 'openai' ? `<small class="cpm-help">${tr`This extension works only when you connect with a Chat Completion API.`}</small>`
+        : ctx().getCurrentChatId() ? '' : `<small class="cpm-help">${tr`Open a chat to see and edit what it remembers here.`}</small>`;
     if (ctx().mainApi !== 'openai' || !ctx().getCurrentChatId()) return;
     const inPanel = settings().showBar && list && host;
     if (!inPanel && !here) return;
@@ -740,7 +741,6 @@ function renderBar() {
             <span class="cpm-track" aria-hidden="true"></span>
             <span class="cpm-text">${e(tr`Remember this chat`)}</span>
         </label>
-        <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${KINDS.map(k => `<button type="button" class="cpm-kind" data-kind="${k}" aria-pressed="${!!kinds[k]}" ${on ? '' : 'disabled'}>${e(KIND_LABEL[k]())}</button>`).join('')}</span>
         <button type="button" class="cpm-info-btn" title="${e(tr`What this chat remembers`)}" aria-label="${e(tr`What this chat remembers`)}"><i class="fa-solid fa-circle-info"></i></button>`;
     bindBar(bar);
     // 확장 설정 칸에는 늘 · 프롬프트 목록 위에는 설정을 켰을 때만 (같은 막대 두 벌)
@@ -748,8 +748,17 @@ function renderBar() {
     if (inPanel) {
         const copy = bar.cloneNode(true);
         bindBar(copy);
-        // 다른 확장의 도구 줄(예: 프롬프트 그룹)이 먼저 붙어 있어도 늘 그 위에 — 나중에 붙느라 자리가 바뀌지 않게
-        (host.querySelector('.pf-toolbar') ?? list).before(copy);
+        const toolbar = host.querySelector('.pf-toolbar');
+        if (toolbar) {
+            // 프롬프트 그룹 도구 줄이 있으면 한 줄로: 스위치와 ⓘ 는 그 줄 왼쪽
+            // (cpm-bar 클래스를 달아 둬야 프롬프트 그룹이 「목록이 바뀜」으로 보고 다시 그리지 않음)
+            const sw = document.createElement('div');
+            sw.className = 'cpm-bar cpm-inpf cpm-inpf-switch' + (enabled ? '' : ' cpm-disabled');
+            sw.append(copy.querySelector('.cpm-switch'), copy.querySelector('.cpm-info-btn'));
+            toolbar.prepend(sw);
+        } else {
+            list.before(copy);
+        }
     }
 }
 
@@ -770,7 +779,10 @@ function watchPromptManager() {
     const host = document.getElementById('completion_prompt_manager');
     if (!host) return void setTimeout(watchPromptManager, 1000);
     new MutationObserver(() => {
-        if (!settings().showBar || host.querySelector('.cpm-bar') || !document.getElementById('completion_prompt_manager_list')) return;
+        if (!settings().showBar || !document.getElementById('completion_prompt_manager_list')) return;
+        const toolbar = host.querySelector('.pf-toolbar');
+        // 도구 줄이 있으면 그 안에, 없으면 목록 위에 우리 막대가 있는지 (도구 줄은 다시 그려질 때 통째로 바뀜)
+        if (toolbar ? toolbar.querySelector('.cpm-inpf') : host.querySelector('.cpm-bar')) return;
         clearTimeout(barTimer);
         barTimer = setTimeout(renderBar, 20);
     }).observe(host, { childList: true, subtree: true });
@@ -778,6 +790,13 @@ function watchPromptManager() {
 }
 
 // ---------------- Settings panel ----------------
+
+/** 캐릭터 목록 검색: 이름 · 프리셋 글자로 거름 */
+function filterChars() {
+    const box = document.getElementById('cpm_chars');
+    const q = box?.querySelector('.cpm-search')?.value.trim().toLowerCase() || '';
+    box?.querySelectorAll('.cpm-char-list li[data-key]').forEach(li => { li.hidden = !!q && !li.textContent.toLowerCase().includes(q); });
+}
 
 /** 설정 칸: 캐릭터별 마지막 설정 목록 — 한 줄씩 지우기(되돌리기 알림) */
 function renderChars() {
@@ -802,6 +821,7 @@ function renderChars() {
         <span class="cpm-char-sub">${e(r.mem?.preset || tr`No preset`)}</span></span>
         <button type="button" class="cpm-char-del fa-solid fa-xmark" title="${e(tr`Remove`)}" aria-label="${e(tr`Remove`)}"></button></li>`).join('')
         : `<li class="cpm-char-empty">${e(tr`There are no character defaults yet.`)}</li>`;
+    filterChars();
     list.querySelectorAll('.cpm-char-del').forEach(btn => btn.addEventListener('click', () => {
         const key = btn.closest('li').dataset.key;
         const old = settings().byChar[key];
@@ -842,6 +862,7 @@ async function addSettingsPanel() {
     }
     const charBox = document.getElementById('cpm_chars');
     charBox?.addEventListener('toggle', () => { if (charBox.open) renderChars(); });
+    charBox?.querySelector('.cpm-search')?.addEventListener('input', filterChars);
     renderChars();
     document.getElementById('cpm_clear_chars')?.addEventListener('click', async () => {
         const n = Object.keys(settings().byChar).length;

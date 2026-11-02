@@ -67,7 +67,6 @@
     "Applied to ${0} chats. They switch to these settings when opened.": "채팅 ${0}개에 적용했어요. 그 채팅을 열면 이 설정으로 바뀌어요.",
     "Show above the prompt list": "프롬프트 목록 위에도 설정 보이기",
     "This chat": "지금 채팅",
-    "Open a chat (Chat Completion) to see what it remembers.": "채팅(채팅 완성)을 열면 여기서 그 채팅의 기억을 보고 고칠 수 있어요.",
     "There are no character defaults yet.": "아직 적어 둔 캐릭터별 마지막 설정이 없어요.",
     "Cleared ${0} character defaults.": "캐릭터 ${0}명의 마지막 설정을 지웠어요.",
     "Restored the character defaults.": "캐릭터별 마지막 설정을 되돌렸어요.",
@@ -80,5 +79,7 @@
     "Removed the last settings for ${0}.": "「${0}」의 마지막 설정을 지웠어요.",
     "deleted group": "지운 그룹",
     "Group": "그룹",
-    "Saved model \"${0}\" was not found.": "기억한 모델 「${0}」을 찾지 못했어요."
+    "Saved model \"${0}\" was not found.": "기억한 모델 「${0}」을 찾지 못했어요.",
+    "Open a chat to see and edit what it remembers here.": "채팅을 열면 여기서 그 채팅이 기억하는 설정을 보고 고칠 수 있어요.",
+    "This extension works only when you connect with a Chat Completion API.": "이 확장은 API를 「채팅 완성(Chat Completion)」으로 연결했을 때만 작동해요."
 }
