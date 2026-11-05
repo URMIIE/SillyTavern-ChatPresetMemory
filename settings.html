@@ -1,46 +1,71 @@
 <div id="cpm_settings" class="cpm-settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>채팅별 설정 기억</b>
+            <b>이 채팅 기억</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
-        <div class="inline-drawer-content">
-            <small class="cpm-help">채팅마다 프롬프트 · 월드인포 · 정규식 · 연결<span class="cpm-au-word"> · AU</span> 상태를 기억했다가, 그 채팅을 다시 열면 그대로 맞춰요. 무엇을 기억할지는 ⓘ 에서 고르고 고쳐요.</small>
-            <div class="cpm-here-wrap"><span class="cpm-here-title">지금 채팅</span><div id="cpm_here"></div></div>
-            <label class="checkbox_label" for="cpm_showBar">
-                <input type="checkbox" id="cpm_showBar">
-                <span>프롬프트 목록 위에도 설정 보이기</span>
-            </label>
-            <div class="cpm-default-kinds">
-                <span>새 채팅에서 기억할 것</span>
-                <label class="checkbox_label" for="cpm_kind_toggles"><input type="checkbox" id="cpm_kind_toggles"><span>프롬프트 (프리셋·토글)</span></label>
-                <label class="checkbox_label" for="cpm_kind_world"><input type="checkbox" id="cpm_kind_world"><span>월드인포</span></label>
-                <label class="checkbox_label" for="cpm_kind_regex"><input type="checkbox" id="cpm_kind_regex"><span>정규식 (전역·프리셋)</span></label>
-                <label class="checkbox_label" for="cpm_kind_connection"><input type="checkbox" id="cpm_kind_connection"><span>연결 (연결 프로필 또는 공급자·모델)</span></label>
-                <label class="checkbox_label" for="cpm_kind_persona"><input type="checkbox" id="cpm_kind_persona"><span>AU (페르소나 · 고른 AU)</span></label>
-            </div>
-            <div class="cpm-char-default">
+        <div class="inline-drawer-content cpm-set">
+            <small class="cpm-help">채팅마다 프롬프트 · 연결 · 정규식 · 월드인포<span class="cpm-au-word"> · AU</span> 상태를 기억했다가, 그 채팅을 다시 열면 그대로 맞춰요. 무엇을 기억할지는 ⓘ 에서 채팅마다 고르고 고쳐요.</small>
+
+            <section class="cpm-set-sec">
+                <div class="cpm-set-head">지금 채팅</div>
+                <div class="cpm-here-wrap"><div id="cpm_here"></div></div>
+            </section>
+
+            <section class="cpm-set-sec">
+                <div class="cpm-set-head">새 채팅</div>
+                <div class="cpm-set-sub">처음부터 기억할 것</div>
+                <div class="cpm-default-kinds">
+                    <span class="cpm-kind-group">
+                        <label class="cpm-chip" for="cpm_kind_toggles"><input type="checkbox" id="cpm_kind_toggles"><span>프롬프트</span></label>
+                        <label class="cpm-chip" for="cpm_kind_connection"><input type="checkbox" id="cpm_kind_connection"><span>연결</span></label>
+                        <label class="cpm-chip" for="cpm_kind_regex"><input type="checkbox" id="cpm_kind_regex"><span>정규식</span></label>
+                    </span>
+                    <span class="cpm-kind-group">
+                        <label class="cpm-chip" for="cpm_kind_world"><input type="checkbox" id="cpm_kind_world"><span>월드인포</span></label>
+                        <label class="cpm-chip" for="cpm_kind_persona"><input type="checkbox" id="cpm_kind_persona"><span>페르소나 AU</span></label>
+                        <label class="cpm-chip" for="cpm_kind_card"><input type="checkbox" id="cpm_kind_card"><span>캐릭터 AU</span></label>
+                    </span>
+                </div>
                 <label class="checkbox_label" for="cpm_charDefault">
                     <input type="checkbox" id="cpm_charDefault">
-                    <span>새 채팅은 그 캐릭터의 마지막 설정으로 시작</span>
+                    <span>그 캐릭터의 마지막 설정으로 시작</span>
                 </label>
-                <small class="cpm-help">캐릭터마다 마지막으로 쓴 설정을 따로 적어 둬요. 그 캐릭터와 새 채팅을 열면 이 설정으로 시작해요. 아래에서 지워도 채팅마다 기억한 설정과 지금 설정은 그대로예요.</small>
                 <details class="cpm-group cpm-chars" id="cpm_chars">
                     <summary><span class="cpm-g-title">캐릭터별 마지막 설정</span><span class="cpm-count"></span></summary>
+                    <small class="cpm-help">캐릭터마다 마지막으로 쓴 설정이에요. 지워도 채팅마다 기억한 설정과 지금 설정은 그대로예요.</small>
                     <input type="search" class="text_pole cpm-search" placeholder="캐릭터 · 프리셋 검색">
                     <ul class="cpm-char-list"></ul>
                     <div class="cpm-char-foot"><button type="button" id="cpm_clear_chars" class="cpm-link">모두 지우기</button></div>
                 </details>
-            </div>
-            <label class="cpm-notify" for="cpm_notifyMode">
-                <span>설정을 맞췄을 때 알림</span>
-                <select id="cpm_notifyMode" class="text_pole">
-                    <option value="all">바뀐 것 모두 보이기</option>
-                    <option value="three">바뀐 것 3줄까지</option>
-                    <option value="plain">알림만 (바뀐 것은 안 보임)</option>
-                    <option value="off">알림 끄기</option>
-                </select>
-            </label>
+            </section>
+
+            <section class="cpm-set-sec">
+                <div class="cpm-set-head">보이기</div>
+                <label class="checkbox_label" for="cpm_showBar">
+                    <input type="checkbox" id="cpm_showBar">
+                    <span>프롬프트 목록 위에 「이 채팅 기억」 줄</span>
+                </label>
+                <label class="checkbox_label" for="cpm_notify">
+                    <input type="checkbox" id="cpm_notify">
+                    <span>설정을 맞췄을 때 알림</span>
+                </label>
+                <div class="cpm-notify-kinds">
+                    <div class="cpm-set-sub">알림에 보일 것 (안 고르면 「맞췄어요」 한 줄만)</div>
+                    <div class="cpm-default-kinds">
+                    <span class="cpm-kind-group">
+                        <label class="cpm-chip" for="cpm_nkind_toggles"><input type="checkbox" id="cpm_nkind_toggles"><span>프롬프트</span></label>
+                        <label class="cpm-chip" for="cpm_nkind_connection"><input type="checkbox" id="cpm_nkind_connection"><span>연결</span></label>
+                        <label class="cpm-chip" for="cpm_nkind_regex"><input type="checkbox" id="cpm_nkind_regex"><span>정규식</span></label>
+                    </span>
+                    <span class="cpm-kind-group">
+                        <label class="cpm-chip" for="cpm_nkind_world"><input type="checkbox" id="cpm_nkind_world"><span>월드인포</span></label>
+                        <label class="cpm-chip" for="cpm_nkind_persona"><input type="checkbox" id="cpm_nkind_persona"><span>페르소나 AU</span></label>
+                        <label class="cpm-chip" for="cpm_nkind_card"><input type="checkbox" id="cpm_nkind_card"><span>캐릭터 AU</span></label>
+                    </span>
+                    </div>
+                </div>
+            </section>
         </div>
     </div>
 </div>

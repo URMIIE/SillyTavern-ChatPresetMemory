@@ -19,8 +19,10 @@ import { t as coreT } from '../../../i18n.js';
 
 const MODULE = 'chatPresetMemory';
 const LOG = '[Chat Preset Memory]';
-const KINDS = ['toggles', 'world', 'regex', 'connection', 'persona'];
-const DEFAULTS = Object.freeze({ enabled: true, restorePreset: true, charDefault: true, notify: true, byChar: {}, pending: {}, showBar: true, kinds: { toggles: true, world: false, regex: false, connection: false, persona: false } });
+// 알약 순서 = 두 묶음: 프롬프트 · 연결 · 정규식 | 월드인포 · 페르소나 AU · 캐릭터 AU
+const KINDS = ['toggles', 'connection', 'regex', 'world', 'persona', 'card'];
+const KIND_GROUPS = [['toggles', 'connection', 'regex'], ['world', 'persona', 'card']];
+const DEFAULTS = Object.freeze({ enabled: true, restorePreset: true, charDefault: true, notify: true, byChar: {}, pending: {}, showBar: true, kinds: { toggles: true, world: false, regex: false, connection: false, persona: false, card: false } });
 const ctx = () => SillyTavern.getContext();
 const nfc = (s) => String(s ?? '').normalize('NFC');
 
@@ -49,8 +51,14 @@ function settings() {
     if (!all[MODULE].showBarSet) { all[MODULE].showBar = true; all[MODULE].showBarSet = true; }
     all[MODULE].kinds = { ...DEFAULTS.kinds, ...(all[MODULE].kinds || {}) };
     // 알림 모양: all(바뀐 것 모두) · three(3줄까지) · plain(알림만) · off — 예전 켬/끔 값에서 이어받음
-    if (!['all', 'three', 'plain', 'off'].includes(all[MODULE].notifyMode)) all[MODULE].notifyMode = all[MODULE].notify === false ? 'off' : 'all';
-    all[MODULE].notify = all[MODULE].notifyMode !== 'off';
+    // 알림: 켜고 끄기(notify) + 알림에 보일 종류(notifyKinds) — 예전 알림 모양(notifyMode) 값에서 한 번 이어받음
+    if (!all[MODULE].notifyKinds || typeof all[MODULE].notifyKinds !== 'object') {
+        const m = all[MODULE].notifyMode;
+        if (m === 'off') all[MODULE].notify = false;
+        all[MODULE].notifyKinds = Object.fromEntries(KINDS.map(k => [k, m !== 'plain']));
+        delete all[MODULE].notifyMode;
+    }
+    all[MODULE].notifyKinds = { ...Object.fromEntries(KINDS.map(k => [k, true])), ...all[MODULE].notifyKinds };
     return all[MODULE];
 }
 
@@ -259,13 +267,73 @@ function togglesFor(mem, preset) {
 const rawKinds = (mem = memory()) => ({ ...settings().kinds, ...(mem?.kinds || {}) });
 // 페르소나 종류는 페르소나마다 버전(AU)을 고르는 확장이 켜져 있을 때만 보이고 작동 (그 확장의 빠른 전환 단추로 판단)
 const auReady = () => !!document.getElementById('ps-quick-trigger');
-const kindList = () => KINDS.filter(k => k !== 'persona' || auReady());
-const kindsOf = (mem = memory()) => { const k = rawKinds(mem); if (!auReady()) k.persona = false; return k; };
+// 캐릭터 AU 는 캐릭터 카드 칸마다 여러 판을 저장해 두는 확장이 켜져 있고(그 확장의 단추로 판단) 지금 캐릭터 카드에 저장판이 있을 때만
+const cardReady = () => !!document.querySelector('.alt_fields_button');
+const kindReady = k => k === 'persona' ? auReady() : k === 'card' ? cardReady() && !!cardFields().length : true;
+const kindList = () => KINDS.filter(kindReady);
+const kindsOf = (mem = memory()) => { const k = rawKinds(mem); for (const x of KINDS) if (!kindReady(x)) k[x] = false; return k; };
+/** 알약을 두 묶음으로 (묶음 사이 세로선) */
+const kindPills = (kinds, e) => KIND_GROUPS.map(g => g.filter(kindReady)).filter(g => g.length)
+    .map(g => `<span class="cpm-kind-group">${g.map(k => `<button type="button" class="cpm-kind" data-kind="${k}" aria-pressed="${!!kinds[k]}">${e(KIND_LABEL[k]())}</button>`).join('')}</span>`).join('');
 function syncAuOption() {
-    const label = document.getElementById('cpm_kind_persona')?.closest('label');
-    if (label) label.hidden = !auReady();
-    document.querySelectorAll('.cpm-au-word').forEach(x => { x.hidden = !auReady(); });
+    for (const pre of ['cpm_kind_', 'cpm_nkind_']) {
+        const label = document.getElementById(`${pre}persona`)?.closest('label');
+        if (label) label.hidden = !auReady();
+        const card = document.getElementById(`${pre}card`)?.closest('label');
+        if (card) card.hidden = !cardReady();
+    }
+    document.querySelectorAll('.cpm-au-word').forEach(x => { x.hidden = !auReady() && !cardReady(); });
 }
+
+// 캐릭터 AU: 카드 칸마다 저장해 둔 판 중 지금 어느 판인지 { 저장 키: { t: 판 이름, i: 몇 번째 } } (이름이 같은 판이 있어 순서도 적음) — 그 확장의 「사용」처럼 카드 칸 글을 바꿔 넣음(실리태번이 카드를 저장)
+const CARD_FIELDS = [
+    { key: 'alt_descriptions', area: 'description_textarea', label: () => tr`Character description` },
+    { key: 'alt_personalities', area: 'personality_textarea', label: () => tr`Personality summary` },
+    { key: 'alt_scenarios', area: 'scenario_pole', label: () => tr`Scenario` },
+    { key: 'alt_example_dialogue', area: 'mes_example_textarea', label: () => tr`Examples of dialogue` },
+    { key: 'alt_main_prompts', area: 'system_prompt_textarea', label: () => tr`Main prompt` },
+    { key: 'alt_post_history', area: 'post_history_instructions_textarea', label: () => tr`Post-history instructions` },
+];
+function cardChar() {
+    const c = ctx();
+    if (c.groupId) return null;
+    const ch = c.characters?.[c.characterId];
+    // 캐릭터 편집 칸이 지금 캐릭터 것일 때만 (다른 캐릭터 칸에 쓰지 않게)
+    return ch && document.getElementById('avatar_url_pole')?.value === ch.avatar ? ch : null;
+}
+/** 지금 캐릭터 카드에서 저장판이 있는 칸 [{ ...칸, list }] */
+function cardFields() {
+    const ch = cardChar();
+    const alts = ch?.data?.extensions?.alternate_fields || {};
+    return CARD_FIELDS.map(f => ({ ...f, list: Array.isArray(alts[f.key]) ? alts[f.key].filter(x => x && typeof x.content === 'string') : [] })).filter(f => f.list.length && document.getElementById(f.area));
+}
+// 카드 파일엔 줄바꿈이 \r\n 으로 저장되기도 해서 \r 은 빼고 비교
+const same = (a, b) => String(a ?? '').replace(/\r/g, '').trim() === String(b ?? '').replace(/\r/g, '').trim();
+function cardState() {
+    const out = {};
+    for (const f of cardFields()) {
+        const i = f.list.findIndex(x => same(x.content, document.getElementById(f.area).value));
+        if (i >= 0) out[f.key] = { t: f.list[i].title, i };
+    }
+    return Object.keys(out).length ? out : null;
+}
+/** 기억한 판으로 → 바꾼 칸 [[칸 이름, 판 이름]] — 지금 글이 어느 저장판과도 다르면(직접 고친 글) 그 칸은 건드리지 않음 */
+function applyCard(state) {
+    const done = [];
+    if (!state) return done;
+    for (const f of cardFields()) {
+        const want = state[f.key];
+        // 순서 · 이름이 둘 다 맞는 판 → 없으면 이름이 같은 첫 판 (판을 지우거나 옮긴 경우)
+        const target = want && (f.list[want.i]?.title === want.t ? f.list[want.i] : f.list.find(x => x.title === want.t));
+        const area = document.getElementById(f.area);
+        if (!target || same(target.content, area.value) || !f.list.some(x => same(x.content, area.value))) continue;
+        area.value = target.content;
+        area.dispatchEvent(new Event('input', { bubbles: true }));
+        done.push([f.label(), target.title]);
+    }
+    return done;
+}
+const cardLabel = st => st ? CARD_FIELDS.filter(f => st[f.key]).map(f => `${f.label()} ${st[f.key].t}`).join(' · ') : '';
 
 const REGEX_TYPES = [SCRIPT_TYPES.GLOBAL, SCRIPT_TYPES.PRESET];
 function regexState() {
@@ -401,6 +469,7 @@ function snapshot(kinds = kindsOf()) {
     if (kinds.regex) snap.regex = regexState();
     if (kinds.connection) snap.connection = connectionState();
     if (kinds.persona && auReady()) snap.persona = personaState();
+    if (kinds.card && cardReady()) { const st = cardState(); if (st) snap.card = st; }
     return snap;
 }
 
@@ -436,7 +505,8 @@ function store(snap, extra = {}) {
         || JSON.stringify(prev.world) !== JSON.stringify(snap.world ?? prev.world)
         || JSON.stringify(prev.entries) !== JSON.stringify(snap.entries ?? prev.entries)
         || JSON.stringify(prev.connection) !== JSON.stringify(snap.connection ?? prev.connection)
-        || JSON.stringify(prev.persona) !== JSON.stringify(snap.persona ?? prev.persona);
+        || JSON.stringify(prev.persona) !== JSON.stringify(snap.persona ?? prev.persona)
+        || JSON.stringify(prev.card) !== JSON.stringify(snap.card ?? prev.card);
     putMemory(c.getCurrentChatId(), next, urgent);
     const key = charKey();
     if (key && settings().charDefault) {
@@ -456,7 +526,8 @@ const sameAsMemory = (mem, snap) => !!mem && nfc(mem.preset) === nfc(snap.preset
     && (!snap.entries || JSON.stringify(mem.entries) === JSON.stringify(snap.entries))
     && (!snap.regex || JSON.stringify(mem.regex) === JSON.stringify(snap.regex))
     && (!snap.connection || JSON.stringify(mem.connection) === JSON.stringify(snap.connection))
-    && (!snap.persona || JSON.stringify(mem.persona) === JSON.stringify(snap.persona));
+    && (!snap.persona || JSON.stringify(mem.persona) === JSON.stringify(snap.persona))
+    && (!snap.card || JSON.stringify(mem.card) === JSON.stringify(snap.card));
 
 /** 바꿀 때마다 기억 (이 채팅 기억을 끈 경우는 제외) */
 let saveTimer = null;
@@ -547,13 +618,13 @@ async function applyRegex(state) {
 }
 
 // 이 확장이 설정을 맞췄을 때 알림은 모두 같은 모양: 머리줄(무엇을 했는지 · 되돌리기) + 바뀐 것 한 줄에 하나씩 [이름 | 값]
-// 알림 모양 설정: all 모두 · three 3줄까지(넘치면 2줄 + 「그 밖에 n개」) · plain 머리줄만 · off 안 띄움(always 는 사용자가 누른 일의 결과라 늘 띄움)
-// 전체 목록은 늘 마우스를 올리면 보임
+// 알림 설정: 끄면 안 띄움(always 는 사용자가 누른 일의 결과라 늘 띄움), 「알림에 보일 것」에서 고른 종류의 줄만 보임 — 안 고른 종류는 줄을 빼고 머리줄만
+// 전체 목록은 늘 마우스를 올리면 보임. notes = [[이름, 값, 종류]]
 function notice(head, notes, { onUndo, timeOut = 8000, always = false } = {}) {
-    const mode = settings().notifyMode;
-    if (mode === 'off' && !always) return;
+    if (!settings().notify && !always) return;
     const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-    const shown = mode === 'plain' ? [] : mode === 'three' && notes.length > 3 ? [...notes.slice(0, 2), ['', tr`${notes.length - 2} more`]] : notes;
+    const show = settings().notifyKinds;
+    const shown = notes.filter(([, , kind]) => !kind || show[kind] !== false);
     const rows = shown.map(([k, v]) => `<span class="cpm-tn-k">${esc(k)}</span><span class="cpm-tn-v">${esc(v)}</span>`).join('');
     const undo = onUndo ? `<u>${esc(tr`Undo`)}</u>` : '';
     const t = toastr.info(`<div class="cpm-tn-head"><span>${esc(head)}</span>${undo}</div>${rows ? `<div class="cpm-tn">${rows}</div>` : ''}`, tr`Chat Preset Memory`, {
@@ -569,41 +640,43 @@ async function restore(mem, label, my) {
     const stale = () => ctx().getCurrentChatId() !== chatId || (my !== undefined && my !== seq);
     // 알림: 바뀐 것을 한 줄에 하나씩 [이름 칸 | 값 칸] — 값이 길면 그 줄 끝에서 … (전체 글은 마우스를 올리면 보임)
     const notes = [];
-    const note = (label, value) => notes.push([label, String(value)]);
+    const note = (label, value, kind) => notes.push([label, String(value), kind]);
     restoring = true;
     const kinds = kindsOf(mem);
     // 되돌리기용: 바꾸기 전 상태(이 채팅이 맞출 종류만)
-    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: lastEntries, regex: kinds.regex ? regexState() : null, connection: kinds.connection ? connectionState() : null, persona: kinds.persona ? personaState() : null };
+    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: lastEntries, regex: kinds.regex ? regexState() : null, connection: kinds.connection ? connectionState() : null, persona: kinds.persona ? personaState() : null, card: kinds.card ? cardState() : null };
     let regexChanged = 0;
     try {
         // 연결 먼저 — 연결 프로필이 프리셋까지 바꿀 수 있어서, 그 뒤에 프리셋 · 토글을 맞춤
-        if (kinds.connection && await applyConnection(mem.connection)) note(tr`Connection`, connectionLabel(mem.connection));
+        if (kinds.connection && await applyConnection(mem.connection)) note(tr`Connection`, connectionLabel(mem.connection), 'connection');
         if (stale()) return;
-        if (kinds.persona) { const p = await applyPersona(mem.persona, stale); if (p) note(tr`Persona`, p); }
+        if (kinds.persona) { const p = await applyPersona(mem.persona, stale); if (p) note(tr`Persona`, p, 'persona'); }
+        if (stale()) return;
+        if (kinds.card) for (const [k, v] of applyCard(mem.card)) note(k, v, 'card');
         if (stale()) return;
         if (kinds.toggles && settings().restorePreset && mem.preset && nfc(mem.preset) !== nfc(currentPreset())) {
             if (!(await switchPreset(mem.preset))) {
                 toastr.warning(tr`Saved preset "${mem.preset}" was not found.`, tr`Chat Preset Memory`);
                 return;
             }
-            note(tr`Preset`, mem.preset);
+            note(tr`Preset`, mem.preset, 'toggles');
         }
         if (stale()) return;
         if (kinds.toggles) {
             const changed = await applyToggles(togglesFor(mem, currentPreset()));
-            if (changed) note(tr`Toggles`, tr`${changed} changed`);
+            if (changed) note(tr`Toggles`, tr`${changed} changed`, 'toggles');
         }
         if (stale()) return;
         if (kinds.world) {
             const books = applyWorld(mem.world);
             const entries = await applyEntries(mem.entries);
-            if (books || entries) note(tr`World info`, entries ? tr`${entries} entries` : tr`Selection changed`);
+            if (books || entries) note(tr`World info`, entries ? tr`${entries} entries` : tr`Selection changed`, 'world');
             await refreshEntries();
         }
         if (stale()) return;
         if (kinds.regex) {
             regexChanged = await applyRegex(mem.regex);
-            if (regexChanged) note(tr`Regex`, tr`${regexChanged} changed`);
+            if (regexChanged) note(tr`Regex`, tr`${regexChanged} changed`, 'regex');
         }
     } finally {
         restoring = false;
@@ -621,6 +694,7 @@ async function undoRestore(before, kinds, chatId) {
     try {
         if (kinds.connection) await applyConnection(before.connection);
         if (kinds.persona) await applyPersona(before.persona);
+        if (kinds.card) applyCard(before.card);
         if (kinds.toggles && nfc(before.preset) !== nfc(currentPreset())) await switchPreset(before.preset);
         if (kinds.toggles) await applyToggles(before.toggles);
         if (kinds.world) { applyWorld(before.world); await applyEntries(before.entries); await refreshEntries(); }
@@ -642,7 +716,7 @@ async function onPresetChanged() {
         restoring = true;
         try {
             const changed = await applyToggles(togglesFor(mem, currentPreset()));
-            if (changed) notice(tr`Restored this chat's toggles for this preset`, [[tr`Toggles`, tr`${changed} changed`]], { timeOut: 4000 });
+            if (changed) notice(tr`Restored this chat's toggles for this preset`, [[tr`Toggles`, tr`${changed} changed`, 'toggles']], { timeOut: 4000 });
         } finally {
             restoring = false;
         }
@@ -712,19 +786,20 @@ async function showMemory() {
     const openMem = openChat && STORE.chats[openChat] ? structuredClone(STORE.chats[openChat]) : undefined;
     let openEntries = null;
     try { openEntries = await readEntries(); } catch (err) { console.warn(LOG, 'world info', err); }
-    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: openEntries, regex: regexState() };
+    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: openEntries, regex: regexState(), card: cardState() };
     root.innerHTML = `
         <h3>${e(tr`What this chat remembers`)}</h3>
         <p class="cpm-edit-sub">${e(tr`Changes apply right away. Cancel puts everything back as it was when you opened this.`)}</p>
         <div class="cpm-edit-top">
             <label class="cpm-switch"><input type="checkbox" role="switch" class="cpm-edit-on" ${mem?.off ? '' : 'checked'}><span class="cpm-track" aria-hidden="true"></span><span>${e(tr`Remember this chat`)}</span></label>
-            <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${kindList().map(k => `<button type="button" class="cpm-kind" data-kind="${k}" aria-pressed="${!!kinds[k]}">${e(KIND_LABEL[k]())}</button>`).join('')}</span>
+            <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${kindPills(kinds, e)}</span>
         </div>
         <div class="cpm-sec" data-sec="toggles"></div>
-        <div class="cpm-sec" data-sec="world"></div>
-        <div class="cpm-sec" data-sec="regex"></div>
         <div class="cpm-sec" data-sec="connection"></div>
+        <div class="cpm-sec" data-sec="regex"></div>
+        <div class="cpm-sec" data-sec="world"></div>
         <div class="cpm-sec" data-sec="persona"></div>
+        <div class="cpm-sec" data-sec="card"></div>
         <div class="cpm-sec cpm-copy" data-sec="copy"></div>`;
     const sec = k => root.querySelector(`[data-sec="${k}"]`);
     // 칸을 다시 그려도 펼친 줄 · 목록 스크롤 · 창 스크롤은 그대로
@@ -870,6 +945,27 @@ async function showMemory() {
             <p class="cpm-edit-sub">${e(locked ? tr`A persona is locked to this chat (${personaName(locked)}), so the lock wins.` : tr`Change the persona in SillyTavern's persona panel; this chat follows it.`)}</p>`;
     };
 
+    // 캐릭터 AU: 저장판이 있는 칸마다 지금 판을 고름 — 고르면 카드 칸에 바로 넣고 이 채팅이 따라 기억
+    const paintCard = () => {
+        const box = sec('card');
+        box.hidden = !kinds.card;
+        if (!kinds.card) { box.innerHTML = ''; return; }
+        const fields = cardFields();
+        box.innerHTML = `<h4>${e(tr`Character AU`)}</h4><dl class="cpm-conn cpm-card">${fields.map(f => {
+            const cur = f.list.find(x => same(x.content, document.getElementById(f.area).value));
+            const opts = (cur ? '' : `<option value="" selected>${e(tr`Edited text (not saved)`)}</option>`) + f.list.map((x, i) => `<option value="${i}" ${x === cur ? 'selected' : ''}>${e(x.title)}</option>`).join('');
+            return `<dt>${e(f.label())}</dt><dd><select class="text_pole cpm-card-pick" data-k="${e(f.key)}">${opts}</select></dd>`;
+        }).join('')}</dl>`;
+        box.querySelectorAll('.cpm-card-pick').forEach(sel => sel.addEventListener('change', () => {
+            const f = cardFields().find(x => x.key === sel.dataset.k), item = f?.list[Number(sel.value)];
+            if (!item) return;
+            const area = document.getElementById(f.area);
+            area.value = item.content;
+            area.dispatchEvent(new Event('input', { bubbles: true }));
+            remember();
+        }));
+    };
+
     // 다른 채팅에 적용: 고른 채팅을 열 때 이 기억으로 바뀜 (지금 그 채팅 파일을 열거나 다시 쓰지 않음)
     const paintCopy = (open = false) => {
         const box = sec('copy');
@@ -964,9 +1060,9 @@ async function showMemory() {
         store(snapshot(next), { kinds: next });
         kinds = kindsOf();
         paintTop();
-        await keep('toggles', paintToggles); await keep('regex', paintRegex); await keep('connection', paintConnection); await keep('persona', paintPersona); await keep('world', paintWorld); await keep('copy', () => paintCopy());
+        await keep('toggles', paintToggles); await keep('regex', paintRegex); await keep('connection', paintConnection); await keep('persona', paintPersona); await keep('card', paintCard); await keep('world', paintWorld); await keep('copy', () => paintCopy());
     }));
-    paintTop(); paintToggles(); paintRegex(); paintConnection(); paintPersona(); paintCopy(); await paintWorld();
+    paintTop(); paintToggles(); paintRegex(); paintConnection(); paintPersona(); paintCard(); paintCopy(); await paintWorld();
     const result = await ctx().callGenericPopup(root, ctx().POPUP_TYPE.CONFIRM, '', { wide: true, allowVerticalScrolling: true, okButton: tr`OK`, cancelButton: tr`Cancel` });
     if (result !== ctx().POPUP_RESULT.AFFIRMATIVE && ctx().getCurrentChatId() === openChat) {
         // 취소 (Esc 포함): 창에서 바꾼 실제 설정과 이 채팅의 기억을 연 때로 되돌림 — 「다른 채팅에 적용」은 이미 적용한 것으로 둠
@@ -976,6 +1072,7 @@ async function showMemory() {
             applyWorld(before.world);
             if (before.entries) { await applyEntries(before.entries); await refreshEntries(); }
             if (await applyRegex(before.regex)) regexChanged = true;
+            applyCard(before.card);
         } finally {
             restoring = false;
         }
@@ -987,7 +1084,7 @@ async function showMemory() {
     renderBar();
 }
 
-const KIND_LABEL = { toggles: () => tr`Preset · toggles`, world: () => tr`World info`, regex: () => tr`Regex`, connection: () => tr`Connection`, persona: () => tr`Persona` };
+const KIND_LABEL = { toggles: () => tr`Preset · toggles`, world: () => tr`World info`, regex: () => tr`Regex`, connection: () => tr`Connection`, persona: () => tr`Persona`, card: () => tr`Character AU` };
 
 /** 이 캐릭터(그룹)의 다른 채팅 id — 이름만 받음(내용은 안 읽음) */
 // 두 기억이 같은 설정인지 (기억한 시각 · 끔 표시는 빼고 비교)
@@ -1131,12 +1228,15 @@ async function addSettingsPanel() {
     const html = await (await fetch(new URL('settings.html', import.meta.url))).text();
     host.insertAdjacentHTML('beforeend', html);
     const s = settings();
-    const nm = document.getElementById('cpm_notifyMode');
-    if (nm) {
-        nm.value = s.notifyMode;
-        nm.addEventListener('change', () => { settings().notifyMode = nm.value; settings().notify = nm.value !== 'off'; ctx().saveSettingsDebounced(); });
+    // 알림에 보일 것: 기억할 것과 같은 알약 — 알림을 끄면 흐리게
+    const syncNotify = () => document.querySelector('#cpm_settings .cpm-notify-kinds')?.classList.toggle('cpm-off', !settings().notify);
+    for (const k of KINDS) {
+        const cb = document.getElementById(`cpm_nkind_${k}`);
+        if (!cb) continue;
+        cb.checked = s.notifyKinds[k] !== false;
+        cb.addEventListener('change', () => { settings().notifyKinds = { ...settings().notifyKinds, [k]: cb.checked }; ctx().saveSettingsDebounced(); });
     }
-    for (const key of ['charDefault', 'showBar']) {
+    for (const key of ['charDefault', 'showBar', 'notify']) {
         const cb = document.getElementById(`cpm_${key}`);
         if (!cb) continue;
         cb.checked = !!s[key];
@@ -1146,6 +1246,8 @@ async function addSettingsPanel() {
             renderBar();
         });
     }
+    document.getElementById('cpm_notify')?.addEventListener('change', syncNotify);
+    syncNotify();
     for (const k of KINDS) {
         const cb = document.getElementById(`cpm_kind_${k}`);
         if (!cb) continue;
@@ -1212,6 +1314,8 @@ jQuery(async () => {
     });
     eventSource.on(event_types.SETTINGS_UPDATED, remember);
     eventSource.on(event_types.PERSONA_CHANGED, () => { if (kindsOf().persona) remember(); });
+    // 캐릭터 카드 칸이 바뀌면(저장판 「사용」 · 직접 고침) 캐릭터 AU 를 따라 기억
+    eventSource.on(event_types.CHARACTER_EDITED, () => { if (kindsOf().card) remember(); });
     // 로어북 항목을 켜고 끄면(월드인포 편집 창) 그 상태를 기억
     eventSource.on(event_types.WORLDINFO_UPDATED, () => { if (!restoring && kindsOf().world) refreshEntries().then(remember); });
     // 프리셋을 바꾸는 동안(설정이 여러 번 저장됨)은 기억하지 않다가, 다 바뀐 뒤 그 프리셋 기준으로 처리

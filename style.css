@@ -1,5 +1,5 @@
 /* 채팅별 프리셋·토글 기억 — 프롬프트 목록 위 한 줄: [스위치] 이 채팅의 프리셋·토글 기억 */
-.cpm-edit {
+.cpm-edit, .cpm-settings {
     --cpm-muted: color-mix(in srgb, var(--SmartThemeBodyColor) 58%, transparent);
     --cpm-line: color-mix(in srgb, var(--SmartThemeBodyColor) 16%, transparent);
 }
@@ -247,3 +247,33 @@
 .cpm-tn .cpm-tn-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cpm-notify { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 6px 0 2px; }
 .cpm-notify select { width: auto; flex: 0 1 auto; min-width: 0; margin: 0; }
+
+/* ---- 알약 두 묶음: 묶음 사이 세로선, 줄이 넘쳐 묶음이 줄 머리에 오면 그 선은 칸 밖으로 잘려 안 보임 ---- */
+.cpm-edit .cpm-edit-top .cpm-kinds, .cpm-default-kinds { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; overflow: hidden; }
+.cpm-kind-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: -11px; padding-left: 10px; border-left: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 30%, transparent); }
+.cpm-edit .cpm-kind-group .cpm-kind { flex: none; max-width: none; min-width: 0; overflow: visible; }
+
+/* ---- 알림: 줄간격을 줄여 작게 ---- */
+.cpm-tn-head, .cpm-tn { line-height: 1.4; }
+.cpm-tn { gap: 1px 12px; margin-top: 4px; }
+
+/* ---- 확장 설정 칸: 지금 채팅 · 새 채팅 · 보이기 세 묶음 ---- */
+.cpm-set .cpm-set-sec { margin: 10px 0 0; padding: 10px 0 2px; border-top: 1px solid var(--cpm-line); }
+.cpm-set .cpm-set-head { margin: 0 0 6px; font-weight: 600; font-size: .95em; }
+.cpm-set .cpm-set-sub { margin: 0 0 6px; font-size: .86em; color: var(--cpm-muted); }
+.cpm-set .cpm-default-kinds { margin: 0 0 10px; }
+.cpm-set .cpm-default-kinds > span { width: auto; opacity: 1; }
+.cpm-chip { position: relative; display: inline-flex; margin: 0; cursor: pointer; }
+.cpm-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.cpm-chip span { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--cpm-line); color: var(--cpm-muted); font-size: .88em; line-height: 1.3; white-space: nowrap; }
+.cpm-chip input:checked + span { color: var(--SmartThemeBodyColor); border-color: color-mix(in srgb, var(--SmartThemeQuoteColor) 70%, transparent); background: color-mix(in srgb, var(--SmartThemeQuoteColor) 18%, transparent); }
+.cpm-chip input:focus-visible + span { outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 1px; }
+.cpm-chip[hidden] { display: none; }
+.cpm-set .checkbox_label { margin: 4px 0; }
+.cpm-set .cpm-chars { margin: 6px 0 4px; }
+.cpm-set .cpm-chars .cpm-help { margin: 6px 0; }
+.cpm-set .cpm-notify { margin: 6px 0 4px; }
+.cpm-edit .cpm-card select { width: auto; max-width: 100%; margin: 0; }
+.cpm-set .cpm-here-wrap { margin: 0; }
+.cpm-set .cpm-notify-kinds { margin: 2px 0 6px 40px; transition: opacity .15s; }
+.cpm-set .cpm-notify-kinds.cpm-off { opacity: .45; pointer-events: none; }

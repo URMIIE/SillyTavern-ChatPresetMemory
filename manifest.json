@@ -1,5 +1,5 @@
 {
-    "display_name": "채팅별 설정 기억",
+    "display_name": "이 채팅 기억 (Chat Preset Memory)",
     "loading_order": 60,
     "js": "index.js",
     "css": "style.css",
