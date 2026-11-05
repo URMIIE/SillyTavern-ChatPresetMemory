@@ -84,5 +84,12 @@
     "Examples of dialogue": "대화 예시",
     "Main prompt": "주요 프롬프트",
     "Post-history instructions": "이후 지시",
-    "Edited text (not saved)": "직접 고친 글 (저장판 아님)"
+    "Original text": "원래 글",
+    "Edited text": "고친 글",
+    "Empty": "비어 있음",
+    "not saved yet": "저장판에 없음",
+    "${0} chars": "${0}자",
+    "No profile": "프로필 안 씀",
+    "Pick a profile to switch right away; this chat remembers it. To change only the model, use SillyTavern's API panel.": "프로필을 고르면 바로 바뀌고 이 채팅이 기억해요. 모델만 바꾸려면 실리태번 API 화면에서 바꿔요.",
+    "Text that isn't a saved version is kept as a new version before you switch, so you can pick it again.": "저장판에 없는 지금 글은 다른 판으로 바꾸기 전에 새 판으로 남겨 둬요. 나중에 다시 고를 수 있어요."
 }

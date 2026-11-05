@@ -2,7 +2,7 @@
 // 채팅 하나의 기억 =
 //   { preset: 마지막 프리셋, byPreset: { 프리셋 이름: 토글 }, world: [켜 둔 전역 월드인포], entries: { 로어북: { uid: 켜짐 } },
 //     regex: { 정규식 id: 켜짐 } (전역 · 프리셋 정규식), connection: { profile | source, model },
-//     persona: { avatar, au? } (페르소나와 그 페르소나에 고른 AU), card: { 저장 키: { t: 판 이름, i: 순서 } } (캐릭터 카드 칸별 판),
+//     persona: { avatar, au? } (페르소나와 그 페르소나에 고른 AU), card: { 저장 키: { t: 판 이름, i: 순서 } | { e: 1 } 빈칸 } (캐릭터 카드 칸별 판),
 //     kinds: { toggles, connection, regex, world, persona, card } 무엇을 기억할지, at, off? }
 // 기억은 채팅 파일이 아니라 서버 파일 user/files/chat-preset-memory.<캐릭터 · 그룹>-<번호>.json { owner, ids, chats: { 채팅 id: 기억 } } 에 둠
 // — 채팅 파일을 다시 쓰지 않아 최근 채팅 목록 순서가 바뀌지 않음. 예전 기억(chat_metadata · 한 파일 chat-preset-memory.json)은 읽어서 옮김
@@ -285,12 +285,12 @@ function syncAuOption() {
 
 // 캐릭터 AU: 카드 칸마다 저장해 둔 판 중 지금 어느 판인지 { 저장 키: { t: 판 이름, i: 몇 번째 } } (이름이 같은 판이 있어 순서도 적음) — 그 확장의 「사용」처럼 카드 칸 글을 바꿔 넣음(실리태번이 카드를 저장)
 const CARD_FIELDS = [
-    { key: 'alt_descriptions', area: 'description_textarea', label: () => tr`Character description` },
-    { key: 'alt_personalities', area: 'personality_textarea', label: () => tr`Personality summary` },
-    { key: 'alt_scenarios', area: 'scenario_pole', label: () => tr`Scenario` },
-    { key: 'alt_example_dialogue', area: 'mes_example_textarea', label: () => tr`Examples of dialogue` },
-    { key: 'alt_main_prompts', area: 'system_prompt_textarea', label: () => tr`Main prompt` },
-    { key: 'alt_post_history', area: 'post_history_instructions_textarea', label: () => tr`Post-history instructions` },
+    { key: 'alt_descriptions', area: 'description_textarea', prop: 'description', label: () => tr`Character description` },
+    { key: 'alt_personalities', area: 'personality_textarea', prop: 'personality', label: () => tr`Personality summary` },
+    { key: 'alt_scenarios', area: 'scenario_pole', prop: 'scenario', label: () => tr`Scenario` },
+    { key: 'alt_example_dialogue', area: 'mes_example_textarea', prop: 'mes_example', label: () => tr`Examples of dialogue` },
+    { key: 'alt_main_prompts', area: 'system_prompt_textarea', prop: 'system_prompt', label: () => tr`Main prompt` },
+    { key: 'alt_post_history', area: 'post_history_instructions_textarea', prop: 'post_history_instructions', label: () => tr`Post-history instructions` },
 ];
 function cardChar() {
     const c = ctx();
@@ -310,10 +310,34 @@ const same = (a, b) => String(a ?? '').replace(/\r/g, '').trim() === String(b ??
 function cardState() {
     const out = {};
     for (const f of cardFields()) {
-        const i = f.list.findIndex(x => same(x.content, document.getElementById(f.area).value));
+        const text = document.getElementById(f.area).value;
+        const i = f.list.findIndex(x => same(x.content, text));
         if (i >= 0) out[f.key] = { t: f.list[i].title, i };
+        else if (!text.trim()) out[f.key] = { e: 1 };   // 빈칸도 하나의 상태로 기억 (빈 시나리오로 돌아갈 수 있게)
     }
     return Object.keys(out).length ? out : null;
+}
+/** 카드 칸에 글을 넣음 — 편집 칸과 메모리의 캐릭터 값을 같이 바꿈.
+ *  편집 칸만 바꾸면, 저장되기 전에 실리태번이 채팅을 다시 불러올 때(연결 프로필을 바꿀 때 등) 칸을 메모리의 옛 글로 다시 채워 되돌아갔음 */
+function setCardText(f, text) {
+    const ch = cardChar(), area = document.getElementById(f.area);
+    if (!ch || !area) return;
+    if (f.prop in ch) ch[f.prop] = text;
+    if (ch.data) ch.data[f.prop] = text;
+    area.value = text;
+    area.dispatchEvent(new Event('input', { bubbles: true }));
+}
+/** 지금 칸 글이 어느 저장판에도 없으면 그 글을 판으로 남김 — 다른 판으로 바꾸면 사라지니까. 남긴 판의 순서 (안 남겼으면 -1) */
+async function keepUnsaved(f) {
+    const ch = cardChar(), text = document.getElementById(f.area)?.value ?? '';
+    if (!ch || !text.trim() || f.list.some(x => same(x.content, text))) return -1;
+    const alts = (ch.data.extensions ||= {}).alternate_fields ||= {};
+    const list = alts[f.key] ||= [];
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    const title = list.some(x => x.title === tr`Original text`) ? `${tr`Edited text`} ${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}` : tr`Original text`;
+    list.push({ title, content: text });
+    await ctx().writeExtensionField(ctx().characterId, 'alternate_fields', alts);
+    return list.length - 1;
 }
 /** 기억한 판으로 → 바꾼 칸 [[칸 이름, 판 이름]] — 지금 글이 어느 저장판과도 다르면(직접 고친 글) 그 칸은 건드리지 않음 */
 function applyCard(state) {
@@ -322,11 +346,10 @@ function applyCard(state) {
     for (const f of cardFields()) {
         const want = state[f.key];
         // 순서 · 이름이 둘 다 맞는 판 → 없으면 이름이 같은 첫 판 (판을 지우거나 옮긴 경우)
-        const target = want && (f.list[want.i]?.title === want.t ? f.list[want.i] : f.list.find(x => x.title === want.t));
+        const target = want?.e ? { title: tr`Empty`, content: '' } : want && (f.list[want.i]?.title === want.t ? f.list[want.i] : f.list.find(x => x.title === want.t));
         const area = document.getElementById(f.area);
-        if (!target || same(target.content, area.value) || !f.list.some(x => same(x.content, area.value))) continue;
-        area.value = target.content;
-        area.dispatchEvent(new Event('input', { bubbles: true }));
+        if (!target || same(target.content, area.value) || (area.value.trim() && !f.list.some(x => same(x.content, area.value)))) continue;
+        setCardText(f, target.content);
         done.push([f.label(), target.title]);
     }
     return done;
@@ -644,13 +667,14 @@ async function restore(mem, label, my) {
     const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: lastEntries, regex: kinds.regex ? regexState() : null, connection: kinds.connection ? connectionState() : null, persona: kinds.persona ? personaState() : null, card: kinds.card ? cardState() : null };
     let regexChanged = 0;
     try {
-        // 연결 먼저 — 연결 프로필이 프리셋까지 바꿀 수 있어서, 그 뒤에 프리셋 · 토글을 맞춤
+        // 캐릭터 AU 는 연결보다 먼저 — 연결 프로필을 바꾸면 실리태번이 채팅을 다시 불러오며 캐릭터 편집 칸을 잠깐 비우는데, 그때는 칸을 못 찾아 건너뜀
+        const cardDone = kinds.card ? applyCard(mem.card) : [];
+        // 연결은 프리셋보다 먼저 — 연결 프로필이 프리셋까지 바꿀 수 있어서, 그 뒤에 프리셋 · 토글을 맞춤
         if (kinds.connection && await applyConnection(mem.connection)) note(tr`Connection`, connectionLabel(mem.connection), 'connection');
         if (stale()) return;
         if (kinds.persona) { const p = await applyPersona(mem.persona, stale); if (p) note(tr`Persona`, p, 'persona'); }
         if (stale()) return;
-        if (kinds.card) for (const [k, v] of applyCard(mem.card)) note(k, v, 'card');
-        if (stale()) return;
+        for (const [k, v] of cardDone) note(k, v, 'card');
         if (kinds.toggles && settings().restorePreset && mem.preset && nfc(mem.preset) !== nfc(currentPreset())) {
             if (!(await switchPreset(mem.preset))) {
                 toastr.warning(tr`Saved preset "${mem.preset}" was not found.`, tr`Chat Preset Memory`);
@@ -689,9 +713,9 @@ async function undoRestore(before, kinds, chatId) {
     restoring = true;
     let regexChanged = 0;
     try {
+        if (kinds.card) applyCard(before.card);   // 연결보다 먼저 (restore 와 같은 까닭)
         if (kinds.connection) await applyConnection(before.connection);
         if (kinds.persona) await applyPersona(before.persona);
-        if (kinds.card) applyCard(before.card);
         if (kinds.toggles && nfc(before.preset) !== nfc(currentPreset())) await switchPreset(before.preset);
         if (kinds.toggles) await applyToggles(before.toggles);
         if (kinds.world) { applyWorld(before.world); await applyEntries(before.entries); await refreshEntries(); }
@@ -769,6 +793,114 @@ async function onChatChanged() {
 
 // ---------------- Status bar above the prompt list ----------------
 
+/**
+ * 꾸민 고르기 칸: 단추(지금 값 ⌄)를 누르면 아래(자리가 모자라면 위)로 목록이 펼쳐짐 — 기본 select 대신.
+ * items: [{ v, label, sub?, sep? }] (sep: 그 줄 위에 가는 선), value: 지금 v, onPick(v)
+ */
+let openPick = null;   // 지금 펼친 고르기 칸의 닫기 — 한 번에 하나만 펼침
+function makePick({ items, value, onPick, empty = '—' }) {
+    const wrap = document.createElement('div');
+    wrap.className = 'cpm-pick';
+    const cur = items.find(x => x.v === value);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cpm-pick-btn';
+    btn.setAttribute('aria-haspopup', 'listbox');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = '<span class="cpm-pick-val"></span><span class="cpm-pick-sub"></span><i class="fa-solid fa-chevron-down cpm-pick-arrow" aria-hidden="true"></i>';
+    btn.querySelector('.cpm-pick-val').textContent = cur?.label ?? empty;
+    btn.querySelector('.cpm-pick-sub').textContent = cur?.sub ?? '';
+    btn.title = cur?.label ?? '';
+    const pop = document.createElement('div');
+    pop.className = 'cpm-pick-pop';
+    pop.hidden = true;
+    const list = document.createElement('div');
+    list.className = 'cpm-pick-list';
+    list.setAttribute('role', 'listbox');
+    if (items.length > 8) {
+        const q = document.createElement('input');
+        q.type = 'search';
+        q.className = 'text_pole cpm-pick-search';
+        q.placeholder = tr`Search`;
+        q.addEventListener('input', () => { const t = q.value.trim().toLowerCase(); opts.forEach(o => { o.hidden = !!t && !o.textContent.toLowerCase().includes(t); }); move(0, true); });
+        pop.append(q);
+    }
+    const opts = items.map(x => {
+        const o = document.createElement('div');
+        o.className = 'cpm-pick-opt' + (x.sep ? ' cpm-pick-sep' : '');
+        o.setAttribute('role', 'option');
+        o.setAttribute('aria-selected', String(x.v === value));
+        o.innerHTML = '<i class="fa-solid fa-check cpm-pick-check" aria-hidden="true"></i><span class="cpm-pick-label"></span><span class="cpm-pick-sub"></span>';
+        o.querySelector('.cpm-pick-label').textContent = x.label;
+        o.querySelector('.cpm-pick-sub').textContent = x.sub ?? '';
+        o.title = x.label;
+        o.addEventListener('click', () => choose(x));
+        o.addEventListener('pointermove', () => setActive(o));
+        return o;
+    });
+    list.append(...opts);
+    pop.append(list);
+    wrap.append(btn, pop);
+
+    let active = null;
+    const setActive = o => { active?.classList.remove('cpm-active'); active = o; o?.classList.add('cpm-active'); };
+    const shown = () => opts.filter(o => !o.hidden);
+    const move = (d, reset) => {
+        const s = shown();
+        if (!s.length) return setActive(null);
+        let i = reset ? 0 : s.indexOf(active) + d;
+        i = Math.max(0, Math.min(s.length - 1, i));
+        setActive(s[i]);
+        s[i].scrollIntoView({ block: 'nearest' });
+    };
+    const outside = ev => { if (!wrap.contains(ev.target)) close(); };
+    function open() {
+        if (!pop.hidden) return;
+        openPick?.();
+        openPick = close;
+        pop.hidden = false;
+        wrap.classList.add('cpm-open');
+        btn.setAttribute('aria-expanded', 'true');
+        // 창(스크롤 칸) 안에서 아래 자리가 모자라면 위로 펼침
+        const pane = wrap.closest('.popup-content') || document.documentElement;
+        const r = btn.getBoundingClientRect(), pr = pane.getBoundingClientRect();
+        const below = pr.bottom - r.bottom - 12, above = r.top - pr.top - 12;
+        const up = below < 200 && above > below;
+        wrap.classList.toggle('cpm-up', up);
+        list.style.maxHeight = `${Math.max(120, Math.min(300, (up ? above : below) - (pop.querySelector('.cpm-pick-search') ? 52 : 12)))}px`;
+        const sel = opts.find(o => o.getAttribute('aria-selected') === 'true');
+        setActive(sel || shown()[0]);
+        sel?.scrollIntoView({ block: 'nearest' });
+        (pop.querySelector('.cpm-pick-search') || list).focus({ preventScroll: true });
+        document.addEventListener('pointerdown', outside, true);
+    }
+    function close(focus) {
+        if (pop.hidden) return;
+        if (openPick === close) openPick = null;
+        pop.hidden = true;
+        wrap.classList.remove('cpm-open', 'cpm-up');
+        btn.setAttribute('aria-expanded', 'false');
+        document.removeEventListener('pointerdown', outside, true);
+        if (focus) btn.focus();
+    }
+    function choose(x) {
+        close(true);
+        if (x.v !== value) onPick(x.v);
+    }
+    list.tabIndex = -1;
+    btn.addEventListener('click', () => (pop.hidden ? open() : close()));
+    btn.addEventListener('keydown', ev => { if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); open(); } });
+    pop.addEventListener('keydown', ev => {
+        // Esc 는 목록만 닫음 (ⓘ 창 자체가 취소되지 않게)
+        if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(true); }
+        else if (ev.key === 'ArrowDown') { ev.preventDefault(); move(1); }
+        else if (ev.key === 'ArrowUp') { ev.preventDefault(); move(-1); }
+        else if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); const i = opts.indexOf(active); if (i >= 0) choose(items[i]); }
+        else if (ev.key === 'Tab') close();
+    });
+    return wrap;
+}
+
 // ⓘ 창: 이 채팅이 기억하는 것을 보고 바로 고침 — 여기서 바꾸면 지금 설정이 바뀌고 기억도 따라감 (따로 저장 단추 없음)
 async function showMemory() {
     const mem = memory();
@@ -777,13 +909,14 @@ async function showMemory() {
     const root = document.createElement('div');
     root.className = 'cpm-info cpm-edit';
     let regexChanged = false;
+    const addedAlts = [];   // 이 창에서 카드에 새로 남긴 판 [{ key, item }] — 「취소」하면 지움
     const closed = new AbortController();   // 창이 닫히면 문서에 붙인 이벤트도 뗌
     // 「취소」용: 창을 열 때의 실제 설정과 이 채팅의 기억
     const openChat = ctx().getCurrentChatId();
     const openMem = openChat && STORE.chats[openChat] ? structuredClone(STORE.chats[openChat]) : undefined;
     let openEntries = null;
     try { openEntries = await readEntries(); } catch (err) { console.warn(LOG, 'world info', err); }
-    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: openEntries, regex: regexState(), card: cardState() };
+    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: openEntries, regex: regexState(), connection: connectionState(), card: cardState() };
     root.innerHTML = `
         <h3>${e(tr`What this chat remembers`)}</h3>
         <p class="cpm-edit-sub">${e(tr`Changes apply right away. Cancel puts everything back as it was when you opened this.`)}</p>
@@ -926,9 +1059,21 @@ async function showMemory() {
         box.hidden = !kinds.connection;
         if (!kinds.connection) { box.innerHTML = ''; return; }
         const now = connectionState(), saved = memory()?.connection;
+        const profiles = extension_settings.connectionManager?.profiles || [];
+        const differs = saved && JSON.stringify(saved) !== JSON.stringify(now);
         box.innerHTML = `<h4>${e(tr`Connection`)}</h4>
-            <dl class="cpm-conn"><dt>${e(tr`Now`)}</dt><dd>${e(connectionLabel(now) || '—')}</dd><dt>${e(tr`Remembered`)}</dt><dd>${e(connectionLabel(saved) || tr`Not remembered yet`)}</dd></dl>
-            <p class="cpm-edit-sub">${e(tr`Change the connection profile or model in SillyTavern's API panel; this chat follows it.`)}</p>`;
+            <dl class="cpm-conn cpm-picks"><dt>${e(tr`Now`)}</dt><dd class="cpm-conn-now"></dd>${!saved || differs ? `<dt>${e(tr`Remembered`)}</dt><dd>${e(connectionLabel(saved) || tr`Not remembered yet`)}</dd>` : ''}</dl>
+            <p class="cpm-edit-sub">${e(profiles.length ? tr`Pick a profile to switch right away; this chat remembers it. To change only the model, use SillyTavern's API panel.` : tr`Change the connection profile or model in SillyTavern's API panel; this chat follows it.`)}</p>`;
+        const dd = box.querySelector('.cpm-conn-now');
+        if (!profiles.length) { dd.textContent = connectionLabel(now) || '—'; return; }
+        const items = profiles.map(p => ({ v: p.name, label: p.name }));
+        if (!now.profile) items.unshift({ v: '', label: tr`No profile`, sub: connectionLabel(now) });
+        dd.append(makePick({ items, value: now.profile || '', onPick: async name => {
+            if (!name) return;
+            await applyConnection({ profile: name });
+            remember();
+            paintConnection();
+        } }));
     };
 
     // 페르소나: 지금 페르소나와 이 채팅이 기억한 페르소나 (바꾸는 건 실리태번 페르소나 화면에서 — 바꾸면 따라 기억)
@@ -948,19 +1093,31 @@ async function showMemory() {
         box.hidden = !kinds.card;
         if (!kinds.card) { box.innerHTML = ''; return; }
         const fields = cardFields();
-        box.innerHTML = `<h4>${e(tr`Character AU`)}</h4><dl class="cpm-conn cpm-card">${fields.map(f => {
-            const cur = f.list.find(x => same(x.content, document.getElementById(f.area).value));
-            const opts = (cur ? '' : `<option value="" selected>${e(tr`Edited text (not saved)`)}</option>`) + f.list.map((x, i) => `<option value="${i}" ${x === cur ? 'selected' : ''}>${e(x.title)}</option>`).join('');
-            return `<dt>${e(f.label())}</dt><dd><select class="text_pole cpm-card-pick" data-k="${e(f.key)}">${opts}</select></dd>`;
-        }).join('')}</dl>`;
-        box.querySelectorAll('.cpm-card-pick').forEach(sel => sel.addEventListener('change', () => {
-            const f = cardFields().find(x => x.key === sel.dataset.k), item = f?.list[Number(sel.value)];
-            if (!item) return;
-            const area = document.getElementById(f.area);
-            area.value = item.content;
-            area.dispatchEvent(new Event('input', { bubbles: true }));
-            remember();
-        }));
+        const unsaved = fields.some(f => { const t = document.getElementById(f.area).value; return t.trim() && !f.list.some(x => same(x.content, t)); });
+        box.innerHTML = `<h4>${e(tr`Character AU`)}</h4><dl class="cpm-conn cpm-picks cpm-card">${fields.map(f => `<dt>${e(f.label())}</dt><dd data-k="${e(f.key)}"></dd>`).join('')}</dl>
+            ${unsaved ? `<p class="cpm-edit-sub">${e(tr`Text that isn't a saved version is kept as a new version before you switch, so you can pick it again.`)}</p>` : ''}`;
+        const n = s => tr`${s.replace(/\r/g, '').trim().length.toLocaleString()} chars`;
+        for (const f of fields) {
+            const text = document.getElementById(f.area).value;
+            const curI = f.list.findIndex(x => same(x.content, text));
+            const items = f.list.map((x, i) => ({ v: String(i), label: x.title || '—', sub: n(x.content) }));
+            if (curI < 0 && text.trim()) items.push({ v: 'now', label: f.list.some(x => x.title === tr`Original text`) ? tr`Edited text` : tr`Original text`, sub: tr`not saved yet`, sep: true });
+            if (f.key !== 'alt_descriptions' || !text.trim()) items.push({ v: 'empty', label: tr`Empty`, sep: !items.at(-1)?.sep });
+            const value = curI >= 0 ? String(curI) : text.trim() ? 'now' : 'empty';
+            box.querySelector(`dd[data-k="${f.key}"]`).append(makePick({ items, value, onPick: async v => {
+                const live = cardFields().find(x => x.key === f.key);
+                if (!live) return;
+                const kept = await keepUnsaved(live);
+                if (kept >= 0) { const it = cardFields().find(x => x.key === f.key).list[kept]; addedAlts.push({ key: f.key, item: { title: it.title, content: it.content } }); }
+                // 창을 열 때의 글이 지금 남긴 판이면 「취소」가 그 판으로 돌아가게
+                if (kept >= 0 && !before.card?.[f.key]) (before.card ||= {})[f.key] = { t: cardFields().find(x => x.key === f.key).list[kept].title, i: kept };
+                const item = v === 'empty' ? { content: '' } : cardFields().find(x => x.key === f.key)?.list[Number(v)];
+                if (!item) return;
+                setCardText(f, item.content);
+                remember();
+                paintCard();
+            } }));
+        }
     };
 
     // 다른 채팅에 적용: 고른 채팅을 열 때 이 기억으로 바뀜 (지금 그 채팅 파일을 열거나 다시 쓰지 않음)
@@ -1070,6 +1227,14 @@ async function showMemory() {
             if (before.entries) { await applyEntries(before.entries); await refreshEntries(); }
             if (await applyRegex(before.regex)) regexChanged = true;
             applyCard(before.card);
+            // 이 창에서 남긴 판도 지움 (글은 위에서 그 판의 글로 이미 되돌림)
+            const ch = cardChar(), alts = ch?.data?.extensions?.alternate_fields;
+            if (alts && addedAlts.length) {
+                for (const { key, item } of addedAlts) if (Array.isArray(alts[key])) { const at = alts[key].findLastIndex(x => x.title === item.title && x.content === item.content); if (at >= 0) alts[key].splice(at, 1); }   // 저장하면 캐릭터 목록이 새 객체로 바뀌어서 이름 · 글로 찾음
+                await ctx().writeExtensionField(ctx().characterId, 'alternate_fields', alts);
+            }
+            // 연결은 카드 다음에 (연결을 바꾸면 채팅을 다시 불러오며 캐릭터 편집 칸을 잠깐 비움)
+            if (kinds.connection) await applyConnection(before.connection);
         } finally {
             restoring = false;
         }
@@ -1287,6 +1452,7 @@ jQuery(async () => {
     loadOwner(charKey());
     try { await addSettingsPanel(); } catch (err) { console.warn(LOG, 'settings panel', err); }
     const { eventSource, event_types } = ctx();
+    // 실리태번은 이벤트 처리를 하나씩 기다리므로, 일부러 쉬는 이 처리가 채팅 열기 · 첫 화면을 막지 않게 따로 돌림
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
     // 채팅 이름을 바꾸면 기억도 새 이름으로, 지우면 기억도 지움
     const bare = n => String(n || '').replace(/\.jsonl$/, '');

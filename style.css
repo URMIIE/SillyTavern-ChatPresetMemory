@@ -270,7 +270,57 @@
 .cpm-set .checkbox_label { margin: 4px 0; }
 .cpm-set .cpm-chars { margin: 6px 0 4px; }
 .cpm-set .cpm-chars .cpm-help { margin: 6px 0; }
-.cpm-edit .cpm-card select { width: auto; max-width: 100%; margin: 0; }
 .cpm-set .cpm-here-wrap { margin: 0; }
 .cpm-set .cpm-notify-kinds { margin: 2px 0 6px 40px; transition: opacity .15s; }
 .cpm-set .cpm-notify-kinds.cpm-off { opacity: .45; pointer-events: none; }
+
+/* ---- ⓘ 창 고르기 칸 (연결 프로필 · 캐릭터 AU 판): 기본 select 대신 단추 + 펼치는 목록 ---- */
+.cpm-edit .cpm-conn.cpm-picks { grid-template-columns: minmax(5.6em, max-content) minmax(0, 1fr); align-items: center; gap: 8px 14px; }  /* 연결 · 캐릭터 AU 칸의 고르기 단추가 같은 세로줄에서 시작 */
+.cpm-edit .cpm-picks dt { line-height: 1.4; }
+.cpm-pick { position: relative; width: min(100%, 420px); }
+.cpm-pick-btn {
+    display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; min-height: 34px; margin: 0;
+    padding: 6px 12px 6px 13px; border: 1px solid var(--cpm-line); border-radius: 9px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 4%, transparent); color: var(--SmartThemeBodyColor);
+    font: inherit; font-size: 1em; line-height: 1.4; text-align: left; cursor: pointer;
+    transition: border-color .15s, background-color .15s, box-shadow .15s;
+}
+.cpm-pick-btn:hover { border-color: color-mix(in srgb, var(--SmartThemeBodyColor) 32%, transparent); background: color-mix(in srgb, var(--SmartThemeBodyColor) 7%, transparent); }
+.cpm-pick-btn:focus-visible, .cpm-pick.cpm-open .cpm-pick-btn { outline: none; border-color: color-mix(in srgb, var(--SmartThemeQuoteColor) 65%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--SmartThemeQuoteColor) 16%, transparent); }
+.cpm-pick-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpm-pick .cpm-pick-sub { flex: none; color: var(--cpm-muted); font-size: .84em; white-space: nowrap; }
+.cpm-pick-sub:empty { display: none; }
+.cpm-pick-arrow { flex: none; font-size: .68em; color: var(--cpm-muted); transition: transform .18s ease; }
+.cpm-pick.cpm-open .cpm-pick-arrow { transform: rotate(180deg); }
+.cpm-pick-pop {
+    position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 6px); box-sizing: border-box; padding: 5px;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 18%, transparent); border-radius: 10px;
+    /* 테마 바탕색이 반투명이라 뒤 글이 비쳐 보이던 것 → 같은 색을 불투명하게 */
+    background: var(--SmartThemeBlurTintColor); background: rgb(from var(--SmartThemeBlurTintColor) r g b / 1);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .1);
+    animation: cpm-pick-in .14s ease-out;
+}
+.cpm-pick.cpm-up .cpm-pick-pop { top: auto; bottom: calc(100% + 6px); animation-name: cpm-pick-in-up; }
+.cpm-pick-pop[hidden] { display: none; }
+@keyframes cpm-pick-in { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes cpm-pick-in-up { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .cpm-pick-pop { animation: none; } .cpm-pick-arrow { transition: none; } }
+.cpm-pick-search { width: 100%; box-sizing: border-box; margin: 0 0 5px !important; }
+.cpm-pick-list { overflow-y: auto; overscroll-behavior: contain; outline: none; }
+.cpm-pick-opt { display: flex; align-items: center; gap: 9px; padding: 7px 10px 7px 9px; border-radius: 7px; line-height: 1.4; cursor: pointer; color: var(--SmartThemeBodyColor); }
+.cpm-pick-opt[hidden] { display: none; }
+.cpm-pick-opt.cpm-active { background: color-mix(in srgb, var(--SmartThemeBodyColor) 9%, transparent); }
+.cpm-pick-sep { margin-top: 5px; position: relative; }
+.cpm-pick-sep::before { content: ''; position: absolute; left: 8px; right: 8px; top: -3px; border-top: 1px solid var(--cpm-line); }
+.cpm-pick-check { flex: none; width: 12px; font-size: .74em; color: var(--SmartThemeQuoteColor); visibility: hidden; }
+.cpm-pick-opt[aria-selected="true"] .cpm-pick-check { visibility: visible; }
+.cpm-pick-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (pointer: coarse) { .cpm-pick-btn { min-height: 40px; } .cpm-pick-opt { padding: 10px 10px 10px 9px; } }
+/* 폰 폭: 이름은 위, 고르기 칸은 아래 한 줄 전체 — 옆에 두면 칸이 좁아 이름이 많이 잘림 */
+@media (max-width: 600px) {
+    .cpm-edit .cpm-conn.cpm-picks { grid-template-columns: minmax(0, 1fr); gap: 3px 0; }
+    .cpm-edit .cpm-picks dd + dt { margin-top: 7px; }
+    .cpm-pick { width: 100%; }
+}
+/* 목록 안 이름은 두 줄까지 (긴 연결 프로필 이름이 폰에서 거의 다 잘리던 것), 단추는 한 줄 … */
+.cpm-pick-label { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
