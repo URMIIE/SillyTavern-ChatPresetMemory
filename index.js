@@ -548,7 +548,10 @@ async function restore(mem, label, my) {
     const chatId = ctx().getCurrentChatId();
     // 그 사이 다른 채팅을 열었으면 멈춤 (빠르게 옮길 때 앞 채팅 설정이 늦게 덮지 않게)
     const stale = () => ctx().getCurrentChatId() !== chatId || (my !== undefined && my !== seq);
-    const notes = [];
+    // 알림에는 이름(연결 · AU · 프리셋)을 16자까지만 — 긴 이름 때문에 알림이 다섯 줄까지 늘던 것. 전체 글은 마우스를 올리면 보임
+    const notes = [], full = [];
+    const clip = x => { const a = [...String(x)]; return a.length > 16 ? a.slice(0, 16).join('') + '…' : String(x); };
+    const note = (make, name) => { notes.push(name === undefined ? make : make(clip(name))); full.push(name === undefined ? make : make(name)); };
     restoring = true;
     const kinds = kindsOf(mem);
     // 되돌리기용: 바꾸기 전 상태(이 채팅이 맞출 종류만)
@@ -556,43 +559,44 @@ async function restore(mem, label, my) {
     let regexChanged = 0;
     try {
         // 연결 먼저 — 연결 프로필이 프리셋까지 바꿀 수 있어서, 그 뒤에 프리셋 · 토글을 맞춤
-        if (kinds.connection && await applyConnection(mem.connection)) notes.push(tr`Connection: ${connectionLabel(mem.connection)}`);
+        if (kinds.connection && await applyConnection(mem.connection)) note(x => tr`Connection: ${x}`, connectionLabel(mem.connection));
         if (stale()) return;
-        if (kinds.persona) { const p = await applyPersona(mem.persona, stale); if (p) notes.push(tr`Persona: ${p}`); }
+        if (kinds.persona) { const p = await applyPersona(mem.persona, stale); if (p) note(x => tr`Persona: ${x}`, p); }
         if (stale()) return;
         if (kinds.toggles && settings().restorePreset && mem.preset && nfc(mem.preset) !== nfc(currentPreset())) {
             if (!(await switchPreset(mem.preset))) {
                 toastr.warning(tr`Saved preset "${mem.preset}" was not found.`, tr`Chat Preset Memory`);
                 return;
             }
-            notes.push(tr`Preset: ${mem.preset}`);
+            note(x => tr`Preset: ${x}`, mem.preset);
         }
         if (stale()) return;
         if (kinds.toggles) {
             const changed = await applyToggles(togglesFor(mem, currentPreset()));
-            if (changed) notes.push(tr`${changed} toggles`);
+            if (changed) note(tr`${changed} toggles`);
         }
         if (stale()) return;
         if (kinds.world) {
             const books = applyWorld(mem.world);
             const entries = await applyEntries(mem.entries);
-            if (books || entries) notes.push(entries ? tr`World info ${entries}` : tr`World info`);
+            if (books || entries) note(entries ? tr`World info ${entries}` : tr`World info`);
             await refreshEntries();
         }
         if (stale()) return;
         if (kinds.regex) {
             regexChanged = await applyRegex(mem.regex);
-            if (regexChanged) notes.push(tr`${regexChanged} regex`);
+            if (regexChanged) note(tr`${regexChanged} regex`);
         }
     } finally {
         restoring = false;
     }
     if (notes.length && settings().notify) {
         const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-        toastr.info(`${esc(label)}: ${esc(notes.join(' · '))} <u>${esc(tr`Undo`)}</u>`, tr`Chat Preset Memory`, {
+        const t = toastr.info(`${esc(label)}: ${esc(notes.join(' · '))} <u>${esc(tr`Undo`)}</u>`, tr`Chat Preset Memory`, {
             escapeHtml: false, timeOut: 8000, extendedTimeOut: 4000,
             onclick: () => undoRestore(before, kinds, chatId),
         });
+        if (full.join() !== notes.join()) t?.attr?.('title', full.join(' · '));
     }
     // 화면에 그리는 정규식이 바뀌었으면 이 채팅을 한 번 다시 그림 — 기다리지 않음(다시 그리기가 채팅 바뀜을 다시 부르고, 그게 이 맞추기가 끝나길 기다려서 서로 멈춤)
     if (regexChanged && ctx().getCurrentChatId() === chatId) setTimeout(() => { if (ctx().getCurrentChatId() === chatId) ctx().reloadCurrentChat(); }, 0);
