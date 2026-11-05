@@ -253,7 +253,16 @@ function togglesFor(mem, preset) {
 }
 
 /** 이 채팅이 기억하는 종류 (채팅마다 고른 것, 없으면 설정의 기본값) */
-const kindsOf = (mem = memory()) => ({ ...settings().kinds, ...(mem?.kinds || {}) });
+const rawKinds = (mem = memory()) => ({ ...settings().kinds, ...(mem?.kinds || {}) });
+// 페르소나 종류는 페르소나마다 버전(AU)을 고르는 확장이 켜져 있을 때만 보이고 작동 (그 확장의 빠른 전환 단추로 판단)
+const auReady = () => !!document.getElementById('ps-quick-trigger');
+const kindList = () => KINDS.filter(k => k !== 'persona' || auReady());
+const kindsOf = (mem = memory()) => { const k = rawKinds(mem); if (!auReady()) k.persona = false; return k; };
+function syncAuOption() {
+    const label = document.getElementById('cpm_kind_persona')?.closest('label');
+    if (label) label.hidden = !auReady();
+    document.querySelectorAll('.cpm-au-word').forEach(x => { x.hidden = !auReady(); });
+}
 
 const REGEX_TYPES = [SCRIPT_TYPES.GLOBAL, SCRIPT_TYPES.PRESET];
 function regexState() {
@@ -388,7 +397,7 @@ function snapshot(kinds = kindsOf()) {
     if (kinds.world) { snap.world = worldState(); if (lastEntries) snap.entries = lastEntries; }
     if (kinds.regex) snap.regex = regexState();
     if (kinds.connection) snap.connection = connectionState();
-    if (kinds.persona) snap.persona = personaState();
+    if (kinds.persona && auReady()) snap.persona = personaState();
     return snap;
 }
 
@@ -694,7 +703,7 @@ async function showMemory() {
         <p class="cpm-edit-sub">${e(tr`Changes apply right away. Cancel puts everything back as it was when you opened this.`)}</p>
         <div class="cpm-edit-top">
             <label class="cpm-switch"><input type="checkbox" role="switch" class="cpm-edit-on" ${mem?.off ? '' : 'checked'}><span class="cpm-track" aria-hidden="true"></span><span>${e(tr`Remember this chat`)}</span></label>
-            <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${KINDS.map(k => `<button type="button" class="cpm-kind" data-kind="${k}" aria-pressed="${!!kinds[k]}">${e(KIND_LABEL[k]())}</button>`).join('')}</span>
+            <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${kindList().map(k => `<button type="button" class="cpm-kind" data-kind="${k}" aria-pressed="${!!kinds[k]}">${e(KIND_LABEL[k]())}</button>`).join('')}</span>
         </div>
         <div class="cpm-sec" data-sec="toggles"></div>
         <div class="cpm-sec" data-sec="world"></div>
@@ -934,11 +943,11 @@ async function showMemory() {
     };
     root.querySelector('.cpm-edit-on').addEventListener('change', ev => { store(snapshot(), { off: !ev.target.checked }); paintTop(); keep('copy', () => paintCopy()); });
     root.querySelectorAll('.cpm-edit-top .cpm-kind').forEach(btn => btn.addEventListener('click', async () => {
-        const next = { ...kindsOf(), [btn.dataset.kind]: btn.getAttribute('aria-pressed') !== 'true' };
-        if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`, tr`Chat Preset Memory`);
+        const next = { ...rawKinds(), [btn.dataset.kind]: btn.getAttribute('aria-pressed') !== 'true' };
+        if (!kindList().some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`, tr`Chat Preset Memory`);
         if (next.world) await refreshEntries();
         store(snapshot(next), { kinds: next });
-        kinds = next;
+        kinds = kindsOf();
         paintTop();
         await keep('toggles', paintToggles); await keep('regex', paintRegex); await keep('connection', paintConnection); await keep('persona', paintPersona); await keep('world', paintWorld); await keep('copy', () => paintCopy());
     }));
@@ -1031,8 +1040,8 @@ function bindBar(bar) {
     });
     bar.querySelector('.cpm-info-btn').addEventListener('click', showMemory);
     bar.querySelectorAll('.cpm-kind').forEach(btn => btn.addEventListener('click', () => {
-        const next = { ...kindsOf(), [btn.dataset.kind]: btn.getAttribute('aria-pressed') !== 'true' };
-        if (!KINDS.some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`, tr`Chat Preset Memory`);
+        const next = { ...rawKinds(), [btn.dataset.kind]: btn.getAttribute('aria-pressed') !== 'true' };
+        if (!kindList().some(k => next[k])) return void toastr.info(tr`Pick at least one, or turn the switch off.`, tr`Chat Preset Memory`);
         (next.world ? refreshEntries() : Promise.resolve()).then(() => store(snapshot(next), { kinds: next }));   // 켠 종류는 지금 상태부터 기억
     }));
 }
@@ -1123,6 +1132,7 @@ async function addSettingsPanel() {
         cb.checked = !!s.kinds[k];
         cb.addEventListener('change', () => { settings().kinds = { ...settings().kinds, [k]: cb.checked }; ctx().saveSettingsDebounced(); renderBar(); });
     }
+    syncAuOption();
     const charBox = document.getElementById('cpm_chars');
     charBox?.addEventListener('toggle', () => { if (charBox.open) renderChars(); });
     charBox?.querySelector('.cpm-search')?.addEventListener('input', filterChars);
@@ -1193,5 +1203,5 @@ jQuery(async () => {
         if (!dryRun && type !== 'quiet') remember();
     });
     watchPromptManager();
-    if (event_types.APP_READY) eventSource.on(event_types.APP_READY, () => pruneFiles().catch(err => console.warn(LOG, 'prune', err)));
+    if (event_types.APP_READY) eventSource.on(event_types.APP_READY, () => { syncAuOption(); renderBar(); pruneFiles().catch(err => console.warn(LOG, 'prune', err)); });
 });
