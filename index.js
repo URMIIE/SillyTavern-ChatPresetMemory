@@ -48,6 +48,9 @@ function settings() {
     // 「프롬프트 목록 위에도 설정 보이기」 기본값이 꺼짐이던 때 저장된 값은 한 번만 켬
     if (!all[MODULE].showBarSet) { all[MODULE].showBar = true; all[MODULE].showBarSet = true; }
     all[MODULE].kinds = { ...DEFAULTS.kinds, ...(all[MODULE].kinds || {}) };
+    // 알림 모양: all(바뀐 것 모두) · three(3줄까지) · plain(알림만) · off — 예전 켬/끔 값에서 이어받음
+    if (!['all', 'three', 'plain', 'off'].includes(all[MODULE].notifyMode)) all[MODULE].notifyMode = all[MODULE].notify === false ? 'off' : 'all';
+    all[MODULE].notify = all[MODULE].notifyMode !== 'off';
     return all[MODULE];
 }
 
@@ -591,8 +594,11 @@ async function restore(mem, label, my) {
     }
     if (notes.length && settings().notify) {
         const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-        const rows = notes.map(([k, v]) => `<b>${esc(k)}</b><span>${esc(v)}</span>`).join('');
-        const t = toastr.info(`<div class="cpm-tn-head"><span>${esc(label)}</span><u>${esc(tr`Undo`)}</u></div><div class="cpm-tn">${rows}</div>`, tr`Chat Preset Memory`, {
+        // 알림 모양 설정: 3줄까지면 넘치는 것은 「그 밖에 n개」 한 줄로, 알림만이면 바뀐 것 줄은 안 그림 (전체는 늘 마우스를 올리면 보임)
+        const mode = settings().notifyMode;
+        const shown = mode === 'plain' ? [] : mode === 'three' && notes.length > 3 ? [...notes.slice(0, 2), ['', tr`${notes.length - 2} more`]] : notes;
+        const rows = shown.map(([k, v]) => `<b>${esc(k)}</b><span>${esc(v)}</span>`).join('');
+        const t = toastr.info(`<div class="cpm-tn-head"><span>${esc(label)}</span><u>${esc(tr`Undo`)}</u></div>${rows ? `<div class="cpm-tn">${rows}</div>` : ''}`, tr`Chat Preset Memory`, {
             escapeHtml: false, timeOut: 8000, extendedTimeOut: 4000,
             onclick: () => undoRestore(before, kinds, chatId),
         });
@@ -1120,7 +1126,12 @@ async function addSettingsPanel() {
     const html = await (await fetch(new URL('settings.html', import.meta.url))).text();
     host.insertAdjacentHTML('beforeend', html);
     const s = settings();
-    for (const key of ['charDefault', 'notify', 'showBar']) {
+    const nm = document.getElementById('cpm_notifyMode');
+    if (nm) {
+        nm.value = s.notifyMode;
+        nm.addEventListener('change', () => { settings().notifyMode = nm.value; settings().notify = nm.value !== 'off'; ctx().saveSettingsDebounced(); });
+    }
+    for (const key of ['charDefault', 'showBar']) {
         const cb = document.getElementById(`cpm_${key}`);
         if (!cb) continue;
         cb.checked = !!s[key];

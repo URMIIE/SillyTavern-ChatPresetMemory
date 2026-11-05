@@ -96,5 +96,6 @@
     "Toggles": "토글",
     "${0} changed": "${0}개 바뀜",
     "${0} entries": "항목 ${0}개",
-    "Selection changed": "선택 바뀜"
+    "Selection changed": "선택 바뀜",
+    "${0} more": "그 밖에 ${0}개"
 }
