@@ -228,3 +228,8 @@
 /* 프롬프트 그룹 도구 줄 안에 들어갈 때 (스위치 · ⓘ 는 왼쪽 끝) */
 .cpm-bar.cpm-inpf { display: flex; align-items: center; flex: none; width: auto; min-height: 0; margin: 0; gap: 0; }
 .cpm-bar.cpm-inpf-switch { margin-right: auto; min-width: 0; }
+
+/* ⓘ 창은 높이를 고정 — 알약을 켜고 끄거나 칸을 펼쳐도 창이 커졌다 줄었다 움직이지 않게, 넘치는 내용은 창 안에서 스크롤 */
+.popup:has(.cpm-edit) { height: min(85dvh, 760px); min-height: 0; }
+.popup:has(.cpm-edit) .popup-body { height: 100%; min-height: 0; }
+.popup:has(.cpm-edit) .popup-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
