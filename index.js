@@ -1,13 +1,12 @@
-// Chat Preset Memory — remembers the Chat Completion preset and its prompt toggles per chat,
-// and restores them when the chat is opened again.
-// Stored in the chat file: chat_metadata.chatPresetMemory =
-//   { preset: 마지막 프리셋, toggles: 그 프리셋의 토글, byPreset: { 프리셋 이름: 토글 }, world: [켜 둔 전역 월드인포],
+// Chat Preset Memory (이 채팅 기억) — 채팅마다 쓰던 설정을 기억했다가, 그 채팅을 다시 열면 그대로 맞춤.
+// 채팅 하나의 기억 =
+//   { preset: 마지막 프리셋, byPreset: { 프리셋 이름: 토글 }, world: [켜 둔 전역 월드인포], entries: { 로어북: { uid: 켜짐 } },
 //     regex: { 정규식 id: 켜짐 } (전역 · 프리셋 정규식), connection: { profile | source, model },
-//     persona: { avatar, au? } (페르소나와 그 페르소나에 고른 버전),
-//     kinds: { toggles, world, regex, connection, persona } 무엇을 기억할지, at, off? }
-// 기억은 채팅 파일이 아니라 서버 파일 user/files/chat-preset-memory.json { chats: { 채팅 id: 기억 } } 에 둠
-// — 채팅 파일을 다시 쓰지 않아 최근 채팅 목록 순서가 바뀌지 않음. 예전 기억(chat_metadata)은 읽기만 함
-// Optional character default: extension settings byChar[avatar | group:id] = 같은 꼴
+//     persona: { avatar, au? } (페르소나와 그 페르소나에 고른 AU), card: { 저장 키: { t: 판 이름, i: 순서 } } (캐릭터 카드 칸별 판),
+//     kinds: { toggles, connection, regex, world, persona, card } 무엇을 기억할지, at, off? }
+// 기억은 채팅 파일이 아니라 서버 파일 user/files/chat-preset-memory.<캐릭터 · 그룹>-<번호>.json { owner, ids, chats: { 채팅 id: 기억 } } 에 둠
+// — 채팅 파일을 다시 쓰지 않아 최근 채팅 목록 순서가 바뀌지 않음. 예전 기억(chat_metadata · 한 파일 chat-preset-memory.json)은 읽어서 옮김
+// 캐릭터별 마지막 설정: extension settings byChar[avatar | group:id] = 같은 꼴 (새 채팅을 열 때 씀)
 
 import { oai_settings, promptManager, getPresetApplicationPromise, getChatCompletionModel } from '../../../openai.js';
 import { extension_settings } from '../../../extensions.js';
@@ -50,7 +49,6 @@ function settings() {
     // 「프롬프트 목록 위에도 설정 보이기」 기본값이 꺼짐이던 때 저장된 값은 한 번만 켬
     if (!all[MODULE].showBarSet) { all[MODULE].showBar = true; all[MODULE].showBarSet = true; }
     all[MODULE].kinds = { ...DEFAULTS.kinds, ...(all[MODULE].kinds || {}) };
-    // 알림 모양: all(바뀐 것 모두) · three(3줄까지) · plain(알림만) · off — 예전 켬/끔 값에서 이어받음
     // 알림: 켜고 끄기(notify) + 알림에 보일 종류(notifyKinds) — 예전 알림 모양(notifyMode) 값에서 한 번 이어받음
     if (!all[MODULE].notifyKinds || typeof all[MODULE].notifyKinds !== 'object') {
         const m = all[MODULE].notifyMode;
@@ -333,7 +331,6 @@ function applyCard(state) {
     }
     return done;
 }
-const cardLabel = st => st ? CARD_FIELDS.filter(f => st[f.key]).map(f => `${f.label()} ${st[f.key].t}`).join(' · ') : '';
 
 const REGEX_TYPES = [SCRIPT_TYPES.GLOBAL, SCRIPT_TYPES.PRESET];
 function regexState() {

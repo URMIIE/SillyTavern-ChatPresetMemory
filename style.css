@@ -245,8 +245,6 @@
 /* 이름 칸은 굵게 하지 않고 옅게만 — 굵기가 없는 한글 글꼴에서 가짜 굵게가 어색했음. 글꼴 · 크기는 알림 글을 그대로 따름 */
 .cpm-tn .cpm-tn-k { opacity: .6; white-space: nowrap; }
 .cpm-tn .cpm-tn-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cpm-notify { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 6px 0 2px; }
-.cpm-notify select { width: auto; flex: 0 1 auto; min-width: 0; margin: 0; }
 
 /* ---- 알약 두 묶음: 묶음 사이 세로선, 줄이 넘쳐 묶음이 줄 머리에 오면 그 선은 칸 밖으로 잘려 안 보임 ---- */
 .cpm-edit .cpm-edit-top .cpm-kinds, .cpm-default-kinds { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; overflow: hidden; }
@@ -272,7 +270,6 @@
 .cpm-set .checkbox_label { margin: 4px 0; }
 .cpm-set .cpm-chars { margin: 6px 0 4px; }
 .cpm-set .cpm-chars .cpm-help { margin: 6px 0; }
-.cpm-set .cpm-notify { margin: 6px 0 4px; }
 .cpm-edit .cpm-card select { width: auto; max-width: 100%; margin: 0; }
 .cpm-set .cpm-here-wrap { margin: 0; }
 .cpm-set .cpm-notify-kinds { margin: 2px 0 6px 40px; transition: opacity .15s; }
