@@ -233,3 +233,6 @@
 .popup:has(.cpm-edit) { height: min(85dvh, 760px); min-height: 0; }
 .popup:has(.cpm-edit) .popup-body { height: 100%; min-height: 0; }
 .popup:has(.cpm-edit) .popup-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* 한 줄 막대의 「이 채팅 기억」: 한글 글자는 글자 칸 안에서 아래쪽에 그려져 스위치 · 아이콘보다 낮아 보임 → 글자 크기에 비례해 살짝 올림 */
+.cpm-bar .cpm-text { position: relative; top: -0.12em; }
