@@ -91,5 +91,10 @@
     "Persona: ${0}": "AU: ${0}",
     "Saved persona \"${0}\" was not found.": "기억한 페르소나 「${0}」을 찾지 못했어요.",
     "A persona is locked to this chat (${0}), so the lock wins.": "이 채팅에 페르소나가 잠겨 있어서(${0}) 잠금을 따라요.",
-    "Change the persona in SillyTavern's persona panel; this chat follows it.": "페르소나 · AU 는 실리태번 페르소나 화면에서 바꾸면 이 채팅이 따라 기억해요."
+    "Change the persona in SillyTavern's persona panel; this chat follows it.": "페르소나 · AU 는 실리태번 페르소나 화면에서 바꾸면 이 채팅이 따라 기억해요.",
+    "Preset": "프리셋",
+    "Toggles": "토글",
+    "${0} changed": "${0}개 바뀜",
+    "${0} entries": "항목 ${0}개",
+    "Selection changed": "선택 바뀜"
 }

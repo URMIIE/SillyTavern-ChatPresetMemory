@@ -236,3 +236,11 @@
 
 /* 한 줄 막대의 「이 채팅 기억」: 한글 글자는 글자 칸 안에서 아래쪽에 그려져 스위치 · 아이콘보다 낮아 보임 → 글자 크기에 비례해 살짝 올림 */
 .cpm-bar .cpm-text { position: relative; top: -0.12em; }
+
+/* 채팅을 열며 맞춘 알림: 바뀐 것을 한 줄에 하나씩 — 왼쪽 이름 칸 · 오른쪽 값 칸, 값이 길면 그 줄 끝에서 … */
+.cpm-tn-head { display: flex; align-items: baseline; gap: 10px; }
+.cpm-tn-head span { flex: 1; min-width: 0; }
+.cpm-tn-head u { flex: none; white-space: nowrap; }
+.cpm-tn { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; margin-top: 6px; }
+.cpm-tn b { font-weight: 600; opacity: .7; white-space: nowrap; }
+.cpm-tn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
