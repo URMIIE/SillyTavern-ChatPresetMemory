@@ -1143,12 +1143,12 @@ async function addSettingsPanel() {
     });
 }
 
-// 다른 확장이 읽을 수 있게: 채팅 id → 그 채팅이 기억한 페르소나 아바타 (페르소나를 기억하는 채팅만, 이 캐릭터 파일을 읽은 뒤)
+// 다른 확장이 읽을 수 있게: 채팅 id → 그 채팅이 기억한 { avatar, au? } (페르소나를 기억하는 채팅만, 이 캐릭터 파일을 읽은 뒤)
 globalThis[Symbol.for('chat-preset-memory.api')] = {
     async persona(chatId, owner = charKey()) {
         await loadOwner(owner);
         const m = STORE.chats[chatId];
-        return m && !m.off && kindsOf(m).persona && m.persona?.avatar || null;
+        return m && !m.off && kindsOf(m).persona && m.persona?.avatar ? { ...m.persona } : null;
     },
 };
 
