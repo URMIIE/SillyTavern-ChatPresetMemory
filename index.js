@@ -3,7 +3,8 @@
 // Stored in the chat file: chat_metadata.chatPresetMemory =
 //   { preset: 마지막 프리셋, toggles: 그 프리셋의 토글, byPreset: { 프리셋 이름: 토글 }, world: [켜 둔 전역 월드인포],
 //     regex: { 정규식 id: 켜짐 } (전역 · 프리셋 정규식), connection: { profile | source, model },
-//     kinds: { toggles, world, regex, connection } 무엇을 기억할지, at, off? }
+//     persona: { avatar, au? } (페르소나와 그 페르소나에 고른 버전),
+//     kinds: { toggles, world, regex, connection, persona } 무엇을 기억할지, at, off? }
 // 기억은 채팅 파일이 아니라 서버 파일 user/files/chat-preset-memory.json { chats: { 채팅 id: 기억 } } 에 둠
 // — 채팅 파일을 다시 쓰지 않아 최근 채팅 목록 순서가 바뀌지 않음. 예전 기억(chat_metadata)은 읽기만 함
 // Optional character default: extension settings byChar[avatar | group:id] = 같은 꼴
@@ -12,11 +13,14 @@ import { oai_settings, promptManager, getPresetApplicationPromise, getChatComple
 import { extension_settings } from '../../../extensions.js';
 import { selected_world_info, world_names, world_info } from '../../../world-info.js';
 import { getScriptsByType, saveScriptsByType, SCRIPT_TYPES } from '../../regex/engine.js';
+import { user_avatar, setUserAvatar } from '../../../personas.js';
+import { power_user } from '../../../power-user.js';
+import { t as coreT } from '../../../i18n.js';
 
 const MODULE = 'chatPresetMemory';
 const LOG = '[Chat Preset Memory]';
-const KINDS = ['toggles', 'world', 'regex', 'connection'];
-const DEFAULTS = Object.freeze({ enabled: true, restorePreset: true, charDefault: true, notify: true, byChar: {}, pending: {}, showBar: true, kinds: { toggles: true, world: false, regex: false, connection: false } });
+const KINDS = ['toggles', 'world', 'regex', 'connection', 'persona'];
+const DEFAULTS = Object.freeze({ enabled: true, restorePreset: true, charDefault: true, notify: true, byChar: {}, pending: {}, showBar: true, kinds: { toggles: true, world: false, regex: false, connection: false, persona: false } });
 const ctx = () => SillyTavern.getContext();
 const nfc = (s) => String(s ?? '').normalize('NFC');
 
@@ -292,6 +296,62 @@ async function applyConnection(state) {
 }
 const connectionLabel = st => st?.profile || [st?.source, st?.model].filter(Boolean).join(' · ');
 
+// 페르소나: 지금 페르소나 + (페르소나마다 버전(AU)을 고르는 확장을 쓰면) 그 페르소나에 고른 버전 이름
+const VERSION_KEY = 'st-persona-au-manager';
+const versionsOf = avatar => extension_settings[VERSION_KEY]?.personaHistoryByAvatar?.[avatar] || [];
+const versionOf = avatar => extension_settings[VERSION_KEY]?.activeVersionByAvatar?.[avatar] || '';
+function personaState() {
+    if (!user_avatar) return null;
+    const au = versionOf(user_avatar);
+    return au ? { avatar: user_avatar, au } : { avatar: user_avatar };
+}
+const personaName = avatar => power_user.personas?.[avatar] || String(avatar || '').replace(/\.[^.]+$/, '');
+const personaLabel = st => st?.avatar ? personaName(st.avatar) + (st.au ? ` · ${st.au}` : '') : '';
+// 실리태번이 채팅을 열며 띄운 알림 하나를 지움 (곧바로 이 확장이 다시 바꿀 때 — 알림이 틀린 말이 되지 않게)
+// 알림이 조금 늦게 뜰 수도 있어서 2초 동안 새로 뜨는 것도 봄
+function dropToast(match, ms = 2000) {
+    const sweep = () => { for (const el of document.querySelectorAll('#toast-container .toast')) if (match(el)) el.remove(); };
+    sweep();
+    const mo = new MutationObserver(sweep);
+    mo.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => mo.disconnect(), ms);
+}
+/** 기억한 페르소나 · 버전으로 → 바꾼 것 설명(없으면 '') — 채팅에 잠근 페르소나가 있으면 그걸 따름 */
+async function applyPersona(state, stale = () => false) {
+    if (!state?.avatar) return '';
+    const locked = ctx().chatMetadata?.persona;
+    if (locked && locked !== state.avatar) return '';
+    if (!power_user.personas?.[state.avatar]) {
+        toastr.warning(tr`Saved persona "${personaName(state.avatar)}" was not found.`, tr`Chat Preset Memory`);
+        return '';
+    }
+    const notes = [];
+    // 실리태번의 채팅 열기(캐릭터 연결 · 기본 페르소나 고르기)가 끝난 뒤에 바꿈 — 늦게 끝나면 한 번 더 맞춤
+    for (let i = 0; i < 2 && user_avatar !== state.avatar; i++) {
+        if (stale()) return '';
+        await setUserAvatar(state.avatar, { toastPersonaNameChange: false });
+        notes.push(1);
+        await new Promise(r => setTimeout(r, 400));
+    }
+    // 실리태번의 「페르소나 자동 선택」 알림 (번역된 제목 · 영어 본문 둘 다 봄)
+    if (notes.length) dropToast(el => [coreT`Persona Auto Selected`, '페르소나 자동 선택됨'].includes(el.querySelector('.toast-title')?.textContent?.trim()) || /Auto-selected persona/i.test(el.querySelector('.toast-message')?.textContent || ''));
+    // 버전: 그 확장의 빠른 전환 메뉴 항목을 대신 눌러 그 확장이 직접 적용하게(설명 · 아바타 · 저장)
+    if (state.au && user_avatar === state.avatar && versionOf(state.avatar) !== state.au && versionsOf(state.avatar).some(v => v.name === state.au)) {
+        const trigger = document.getElementById('ps-quick-trigger');
+        if (trigger && !trigger.disabled) {
+            trigger.click();
+            const item = [...document.querySelectorAll('.ps-quick-menu .ps-quick-item')].find(b => b.title === state.au);
+            if (item) item.click(); else document.querySelector('.ps-quick-menu') && trigger.click();
+        }
+        if (versionOf(state.avatar) === state.au) {
+            notes.push(2);
+            dropToast(el => el.querySelector('.toast-message')?.textContent?.startsWith(`'${state.au}'`));
+        }
+    }
+    if (!notes.length) return '';
+    return notes.includes(2) ? `${personaName(state.avatar)} · ${state.au}` : personaName(state.avatar);
+}
+
 // 이 채팅에 걸린 로어북: 전역 선택 · 채팅 로어북 · 캐릭터(그룹이면 멤버들)의 연결 · 추가 로어북
 function activeBooks() {
     const c = ctx(), books = new Set(selected_world_info);
@@ -328,6 +388,7 @@ function snapshot(kinds = kindsOf()) {
     if (kinds.world) { snap.world = worldState(); if (lastEntries) snap.entries = lastEntries; }
     if (kinds.regex) snap.regex = regexState();
     if (kinds.connection) snap.connection = connectionState();
+    if (kinds.persona) snap.persona = personaState();
     return snap;
 }
 
@@ -362,7 +423,8 @@ function store(snap, extra = {}) {
     const urgent = !prev || nfc(prev.preset) !== nfc(snap.preset) || 'off' in extra || 'kinds' in extra
         || JSON.stringify(prev.world) !== JSON.stringify(snap.world ?? prev.world)
         || JSON.stringify(prev.entries) !== JSON.stringify(snap.entries ?? prev.entries)
-        || JSON.stringify(prev.connection) !== JSON.stringify(snap.connection ?? prev.connection);
+        || JSON.stringify(prev.connection) !== JSON.stringify(snap.connection ?? prev.connection)
+        || JSON.stringify(prev.persona) !== JSON.stringify(snap.persona ?? prev.persona);
     putMemory(c.getCurrentChatId(), next, urgent);
     const key = charKey();
     if (key && settings().charDefault) {
@@ -381,7 +443,8 @@ const sameAsMemory = (mem, snap) => !!mem && nfc(mem.preset) === nfc(snap.preset
     && (!snap.world || JSON.stringify(mem.world) === JSON.stringify(snap.world))
     && (!snap.entries || JSON.stringify(mem.entries) === JSON.stringify(snap.entries))
     && (!snap.regex || JSON.stringify(mem.regex) === JSON.stringify(snap.regex))
-    && (!snap.connection || JSON.stringify(mem.connection) === JSON.stringify(snap.connection));
+    && (!snap.connection || JSON.stringify(mem.connection) === JSON.stringify(snap.connection))
+    && (!snap.persona || JSON.stringify(mem.persona) === JSON.stringify(snap.persona));
 
 /** 바꿀 때마다 기억 (이 채팅 기억을 끈 경우는 제외) */
 let saveTimer = null;
@@ -480,11 +543,13 @@ async function restore(mem, label, my) {
     restoring = true;
     const kinds = kindsOf(mem);
     // 되돌리기용: 바꾸기 전 상태(이 채팅이 맞출 종류만)
-    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: lastEntries, regex: kinds.regex ? regexState() : null, connection: kinds.connection ? connectionState() : null };
+    const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: lastEntries, regex: kinds.regex ? regexState() : null, connection: kinds.connection ? connectionState() : null, persona: kinds.persona ? personaState() : null };
     let regexChanged = 0;
     try {
         // 연결 먼저 — 연결 프로필이 프리셋까지 바꿀 수 있어서, 그 뒤에 프리셋 · 토글을 맞춤
         if (kinds.connection && await applyConnection(mem.connection)) notes.push(tr`Connection: ${connectionLabel(mem.connection)}`);
+        if (stale()) return;
+        if (kinds.persona) { const p = await applyPersona(mem.persona, stale); if (p) notes.push(tr`Persona: ${p}`); }
         if (stale()) return;
         if (kinds.toggles && settings().restorePreset && mem.preset && nfc(mem.preset) !== nfc(currentPreset())) {
             if (!(await switchPreset(mem.preset))) {
@@ -531,6 +596,7 @@ async function undoRestore(before, kinds, chatId) {
     let regexChanged = 0;
     try {
         if (kinds.connection) await applyConnection(before.connection);
+        if (kinds.persona) await applyPersona(before.persona);
         if (kinds.toggles && nfc(before.preset) !== nfc(currentPreset())) await switchPreset(before.preset);
         if (kinds.toggles) await applyToggles(before.toggles);
         if (kinds.world) { applyWorld(before.world); await applyEntries(before.entries); await refreshEntries(); }
@@ -634,6 +700,7 @@ async function showMemory() {
         <div class="cpm-sec" data-sec="world"></div>
         <div class="cpm-sec" data-sec="regex"></div>
         <div class="cpm-sec" data-sec="connection"></div>
+        <div class="cpm-sec" data-sec="persona"></div>
         <div class="cpm-sec cpm-copy" data-sec="copy"></div>`;
     const sec = k => root.querySelector(`[data-sec="${k}"]`);
     // 칸을 다시 그려도 펼친 줄 · 목록 스크롤 · 창 스크롤은 그대로
@@ -768,6 +835,17 @@ async function showMemory() {
             <p class="cpm-edit-sub">${e(tr`Change the connection profile or model in SillyTavern's API panel; this chat follows it.`)}</p>`;
     };
 
+    // 페르소나: 지금 페르소나와 이 채팅이 기억한 페르소나 (바꾸는 건 실리태번 페르소나 화면에서 — 바꾸면 따라 기억)
+    const paintPersona = () => {
+        const box = sec('persona');
+        box.hidden = !kinds.persona;
+        if (!kinds.persona) { box.innerHTML = ''; return; }
+        const now = personaState(), saved = memory()?.persona, locked = ctx().chatMetadata?.persona;
+        box.innerHTML = `<h4>${e(tr`Persona`)}</h4>
+            <dl class="cpm-conn"><dt>${e(tr`Now`)}</dt><dd>${e(personaLabel(now) || '—')}</dd><dt>${e(tr`Remembered`)}</dt><dd>${e(personaLabel(saved) || tr`Not remembered yet`)}</dd></dl>
+            <p class="cpm-edit-sub">${e(locked ? tr`A persona is locked to this chat (${personaName(locked)}), so the lock wins.` : tr`Change the persona in SillyTavern's persona panel; this chat follows it.`)}</p>`;
+    };
+
     // 다른 채팅에 적용: 고른 채팅을 열 때 이 기억으로 바뀜 (지금 그 채팅 파일을 열거나 다시 쓰지 않음)
     const paintCopy = (open = false) => {
         const box = sec('copy');
@@ -862,9 +940,9 @@ async function showMemory() {
         store(snapshot(next), { kinds: next });
         kinds = next;
         paintTop();
-        await keep('toggles', paintToggles); await keep('regex', paintRegex); await keep('connection', paintConnection); await keep('world', paintWorld); await keep('copy', () => paintCopy());
+        await keep('toggles', paintToggles); await keep('regex', paintRegex); await keep('connection', paintConnection); await keep('persona', paintPersona); await keep('world', paintWorld); await keep('copy', () => paintCopy());
     }));
-    paintTop(); paintToggles(); paintRegex(); paintConnection(); paintCopy(); await paintWorld();
+    paintTop(); paintToggles(); paintRegex(); paintConnection(); paintPersona(); paintCopy(); await paintWorld();
     const result = await ctx().callGenericPopup(root, ctx().POPUP_TYPE.CONFIRM, '', { wide: true, allowVerticalScrolling: true, okButton: tr`OK`, cancelButton: tr`Cancel` });
     if (result !== ctx().POPUP_RESULT.AFFIRMATIVE && ctx().getCurrentChatId() === openChat) {
         // 취소 (Esc 포함): 창에서 바꾼 실제 설정과 이 채팅의 기억을 연 때로 되돌림 — 「다른 채팅에 적용」은 이미 적용한 것으로 둠
@@ -885,7 +963,7 @@ async function showMemory() {
     renderBar();
 }
 
-const KIND_LABEL = { toggles: () => tr`Preset · toggles`, world: () => tr`World info`, regex: () => tr`Regex`, connection: () => tr`Connection` };
+const KIND_LABEL = { toggles: () => tr`Preset · toggles`, world: () => tr`World info`, regex: () => tr`Regex`, connection: () => tr`Connection`, persona: () => tr`Persona` };
 
 /** 이 캐릭터(그룹)의 다른 채팅 id — 이름만 받음(내용은 안 읽음) */
 // 두 기억이 같은 설정인지 (기억한 시각 · 끔 표시는 빼고 비교)
@@ -1065,6 +1143,15 @@ async function addSettingsPanel() {
     });
 }
 
+// 다른 확장이 읽을 수 있게: 채팅 id → 그 채팅이 기억한 페르소나 아바타 (페르소나를 기억하는 채팅만, 이 캐릭터 파일을 읽은 뒤)
+globalThis[Symbol.for('chat-preset-memory.api')] = {
+    async persona(chatId, owner = charKey()) {
+        await loadOwner(owner);
+        const m = STORE.chats[chatId];
+        return m && !m.off && kindsOf(m).persona && m.persona?.avatar || null;
+    },
+};
+
 jQuery(async () => {
     settings();
     await loadKo();
@@ -1094,6 +1181,7 @@ jQuery(async () => {
         loaded.delete(oldKey); loaded.delete(newKey);
     });
     eventSource.on(event_types.SETTINGS_UPDATED, remember);
+    eventSource.on(event_types.PERSONA_CHANGED, () => { if (kindsOf().persona) remember(); });
     // 로어북 항목을 켜고 끄면(월드인포 편집 창) 그 상태를 기억
     eventSource.on(event_types.WORLDINFO_UPDATED, () => { if (!restoring && kindsOf().world) refreshEntries().then(remember); });
     // 프리셋을 바꾸는 동안(설정이 여러 번 저장됨)은 기억하지 않다가, 다 바뀐 뒤 그 프리셋 기준으로 처리
