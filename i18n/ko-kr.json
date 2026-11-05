@@ -46,7 +46,7 @@
     "Saved connection profile \"${0}\" was not found.": "기억한 연결 프로필 「${0}」을 찾지 못했어요.",
     "Undo": "되돌리기",
     "You're in another chat now, so this can't be undone.": "다른 채팅으로 옮겨서 되돌릴 수 없어요.",
-    "Back to the settings before opening this chat.": "이 채팅을 열기 전 설정으로 돌아갔어요.",
+    "Back to the settings before opening this chat.": "이 채팅을 열기 전 설정으로 돌아갔어요",
     "Now": "지금",
     "Remembered": "기억",
     "Change the connection profile or model in SillyTavern's API panel; this chat follows it.": "연결 프로필이나 모델은 실리태번 API 화면에서 바꾸면, 이 채팅이 따라 기억해요.",

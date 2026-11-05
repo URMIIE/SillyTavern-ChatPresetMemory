@@ -546,6 +546,22 @@ async function applyRegex(state) {
     return changed;
 }
 
+// 이 확장이 설정을 맞췄을 때 알림은 모두 같은 모양: 머리줄(무엇을 했는지 · 되돌리기) + 바뀐 것 한 줄에 하나씩 [이름 | 값]
+// 알림 모양 설정: all 모두 · three 3줄까지(넘치면 2줄 + 「그 밖에 n개」) · plain 머리줄만 · off 안 띄움(always 는 사용자가 누른 일의 결과라 늘 띄움)
+// 전체 목록은 늘 마우스를 올리면 보임
+function notice(head, notes, { onUndo, timeOut = 8000, always = false } = {}) {
+    const mode = settings().notifyMode;
+    if (mode === 'off' && !always) return;
+    const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    const shown = mode === 'plain' ? [] : mode === 'three' && notes.length > 3 ? [...notes.slice(0, 2), ['', tr`${notes.length - 2} more`]] : notes;
+    const rows = shown.map(([k, v]) => `<span class="cpm-tn-k">${esc(k)}</span><span class="cpm-tn-v">${esc(v)}</span>`).join('');
+    const undo = onUndo ? `<u>${esc(tr`Undo`)}</u>` : '';
+    const t = toastr.info(`<div class="cpm-tn-head"><span>${esc(head)}</span>${undo}</div>${rows ? `<div class="cpm-tn">${rows}</div>` : ''}`, tr`Chat Preset Memory`, {
+        escapeHtml: false, timeOut, extendedTimeOut: 4000, ...(onUndo ? { onclick: onUndo } : {}),
+    });
+    if (notes.length) t?.attr?.('title', notes.map(([k, v]) => `${k}: ${v}`).join('\n'));
+}
+
 /** 채팅을 열 때: 마지막 프리셋으로 바꾸고(설정에 따라), 그 프리셋에서 기억한 토글을 맞춤 */
 async function restore(mem, label, my) {
     const chatId = ctx().getCurrentChatId();
@@ -592,18 +608,7 @@ async function restore(mem, label, my) {
     } finally {
         restoring = false;
     }
-    if (notes.length && settings().notify) {
-        const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-        // 알림 모양 설정: 3줄까지면 넘치는 것은 「그 밖에 n개」 한 줄로, 알림만이면 바뀐 것 줄은 안 그림 (전체는 늘 마우스를 올리면 보임)
-        const mode = settings().notifyMode;
-        const shown = mode === 'plain' ? [] : mode === 'three' && notes.length > 3 ? [...notes.slice(0, 2), ['', tr`${notes.length - 2} more`]] : notes;
-        const rows = shown.map(([k, v]) => `<b>${esc(k)}</b><span>${esc(v)}</span>`).join('');
-        const t = toastr.info(`<div class="cpm-tn-head"><span>${esc(label)}</span><u>${esc(tr`Undo`)}</u></div>${rows ? `<div class="cpm-tn">${rows}</div>` : ''}`, tr`Chat Preset Memory`, {
-            escapeHtml: false, timeOut: 8000, extendedTimeOut: 4000,
-            onclick: () => undoRestore(before, kinds, chatId),
-        });
-        t?.attr?.('title', notes.map(([k, v]) => `${k}: ${v}`).join('\n'));
-    }
+    if (notes.length) notice(label, notes, { onUndo: () => undoRestore(before, kinds, chatId) });
     // 화면에 그리는 정규식이 바뀌었으면 이 채팅을 한 번 다시 그림 — 기다리지 않음(다시 그리기가 채팅 바뀜을 다시 부르고, 그게 이 맞추기가 끝나길 기다려서 서로 멈춤)
     if (regexChanged && ctx().getCurrentChatId() === chatId) setTimeout(() => { if (ctx().getCurrentChatId() === chatId) ctx().reloadCurrentChat(); }, 0);
 }
@@ -624,7 +629,7 @@ async function undoRestore(before, kinds, chatId) {
         restoring = false;
     }
     store(snapshot());
-    toastr.info(tr`Back to the settings before opening this chat.`, tr`Chat Preset Memory`, { timeOut: 2500 });
+    notice(tr`Back to the settings before opening this chat.`, [], { timeOut: 2500, always: true });
     if (regexChanged) await ctx().reloadCurrentChat();
 }
 
@@ -637,7 +642,7 @@ async function onPresetChanged() {
         restoring = true;
         try {
             const changed = await applyToggles(togglesFor(mem, currentPreset()));
-            if (changed && settings().notify) toastr.info(`${tr`Restored this chat's toggles for this preset`}: ${tr`${changed} toggles`}`, tr`Chat Preset Memory`, { timeOut: 2000 });
+            if (changed) notice(tr`Restored this chat's toggles for this preset`, [[tr`Toggles`, tr`${changed} changed`]], { timeOut: 4000 });
         } finally {
             restoring = false;
         }
