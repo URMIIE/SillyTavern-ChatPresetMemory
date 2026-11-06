@@ -324,3 +324,9 @@
 }
 /* 목록 안 이름은 두 줄까지 (긴 연결 프로필 이름이 폰에서 거의 다 잘리던 것), 단추는 한 줄 … */
 .cpm-pick-label { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* 「프롬프트」 제목 줄 안에 둘 때 */
+#completion_prompt_manager .completion_prompt_manager_header > .cpm-bar.cpm-at-head { width: auto; flex: 0 1 auto; margin: -4px 12px -4px auto; min-height: 0; }
+#completion_prompt_manager .completion_prompt_manager_header:has(> .cpm-bar) { align-items: center; }
+#completion_prompt_manager .completion_prompt_manager_header:has(> .cpm-bar) > .pf-toolbar.pf-bar-head { margin-left: 0; }
+#cpm_settings .cpm-set-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+#cpm_settings .cpm-set-row select { width: auto; flex: 1 1 auto; margin: 0; }

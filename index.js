@@ -21,7 +21,7 @@ const LOG = '[Chat Preset Memory]';
 // 알약 순서 = 두 묶음: 프롬프트 · 연결 · 정규식 | 월드인포 · 페르소나 AU · 캐릭터 AU
 const KINDS = ['toggles', 'connection', 'regex', 'world', 'persona', 'card'];
 const KIND_GROUPS = [['toggles', 'connection', 'regex'], ['world', 'persona', 'card']];
-const DEFAULTS = Object.freeze({ enabled: true, restorePreset: true, charDefault: true, notify: true, byChar: {}, pending: {}, showBar: true, kinds: { toggles: true, world: false, regex: false, connection: false, persona: false, card: false } });
+const DEFAULTS = Object.freeze({ enabled: true, restorePreset: true, charDefault: true, notify: true, byChar: {}, pending: {}, showBar: true, barPos: 'top', kinds: { toggles: true, world: false, regex: false, connection: false, persona: false, card: false } });
 const ctx = () => SillyTavern.getContext();
 const nfc = (s) => String(s ?? '').normalize('NFC');
 
@@ -1262,6 +1262,34 @@ async function otherChats() {
     if (!avatar) return [];
     return (await chatsOf(avatar)).filter(id => id !== here).sort().reverse();
 }
+/** 막대 자리: top = 목록 바로 위 · head = 「프롬프트」 제목 줄 안 · under = 제목 줄 바로 아래 · bottom = 목록 맨 밑 */
+const BAR_SPOTS = ['top', 'head', 'under', 'bottom'];
+const barSpot = () => BAR_SPOTS.includes(settings().barPos) ? settings().barPos : 'top';
+/** 목록 위 도구 줄(.pf-toolbar)이 우리와 같은 자리에 있으면 그 줄 — 그때만 한 줄로 합침 */
+function sharedToolbar(host) {
+    const toolbar = host?.querySelector('.pf-toolbar');
+    if (!toolbar) return null;
+    const prev = toolbar.previousElementSibling;
+    const at = toolbar.closest('.completion_prompt_manager_header') ? 'head'
+        : prev?.classList.contains('completion_prompt_manager_header') ? 'under'
+            : prev?.id === 'completion_prompt_manager_list' ? 'bottom' : 'top';
+    return at === barSpot() ? toolbar : null;
+}
+function placeOwnBar(host, list, bar) {
+    const wrap = list.parentElement;
+    const head = wrap?.querySelector(':scope > .completion_prompt_manager_header');
+    const spot = barSpot();
+    bar.classList.toggle('cpm-at-head', spot === 'head' && !!head);
+    if (spot === 'head' && head) (head.firstElementChild || head).after(bar);
+    else if (spot === 'under' && head) {
+        // 그 자리에 다른 확장 줄이 먼저 있으면 그 아래로
+        let at = head;
+        while (at.nextElementSibling && at.nextElementSibling !== bar && !at.nextElementSibling.classList.contains('completion_prompt_manager_footer') && at.nextElementSibling.id !== 'completion_prompt_manager_list') at = at.nextElementSibling;
+        at.after(bar);
+    }
+    else if (spot === 'bottom') list.after(bar);
+    else list.before(bar);
+}
 function renderBar() {
     const list = document.getElementById('completion_prompt_manager_list');
     const host = document.getElementById('completion_prompt_manager');
@@ -1294,16 +1322,16 @@ function renderBar() {
     if (inPanel) {
         const copy = bar.cloneNode(true);
         bindBar(copy);
-        const toolbar = host.querySelector('.pf-toolbar');
+        const toolbar = sharedToolbar(host);
         if (toolbar) {
-            // 프롬프트 그룹 도구 줄이 있으면 한 줄로: 스위치와 ⓘ 는 그 줄 왼쪽
+            // 프롬프트 그룹 도구 줄이 목록 위에 있으면 한 줄로: 스위치와 ⓘ 는 그 줄 왼쪽
             // (cpm-bar 클래스를 달아 둬야 프롬프트 그룹이 「목록이 바뀜」으로 보고 다시 그리지 않음)
             const sw = document.createElement('div');
             sw.className = 'cpm-bar cpm-inpf cpm-inpf-switch' + (enabled ? '' : ' cpm-disabled');
             sw.append(copy.querySelector('.cpm-switch'), copy.querySelector('.cpm-info-btn'));
             toolbar.prepend(sw);
         } else {
-            list.before(copy);
+            placeOwnBar(host, list, copy);
         }
     }
 }
@@ -1326,9 +1354,9 @@ function watchPromptManager() {
     if (!host) return void setTimeout(watchPromptManager, 1000);
     new MutationObserver(() => {
         if (!settings().showBar || !document.getElementById('completion_prompt_manager_list')) return;
-        const toolbar = host.querySelector('.pf-toolbar');
-        // 도구 줄이 있으면 그 안에, 없으면 목록 위에 우리 막대가 있는지 (도구 줄은 다시 그려질 때 통째로 바뀜)
-        if (toolbar ? toolbar.querySelector('.cpm-inpf') : host.querySelector('.cpm-bar')) return;
+        const toolbar = sharedToolbar(host);
+        // 도구 줄이 같은 자리에 있으면 그 안에, 없으면 목록 위에 우리 막대가 있는지 (도구 줄은 다시 그려질 때 통째로 바뀜)
+        if (toolbar ? toolbar.querySelector('.cpm-inpf') : host.querySelector('.cpm-bar:not(.cpm-inpf)')) return;
         clearTimeout(barTimer);
         barTimer = setTimeout(renderBar, 20);
     }).observe(host, { childList: true, subtree: true });
@@ -1397,6 +1425,11 @@ async function addSettingsPanel() {
         if (!cb) continue;
         cb.checked = s.notifyKinds[k] !== false;
         cb.addEventListener('change', () => { settings().notifyKinds = { ...settings().notifyKinds, [k]: cb.checked }; ctx().saveSettingsDebounced(); });
+    }
+    const bp = document.getElementById('cpm_barPos');
+    if (bp) {
+        bp.value = barSpot();
+        bp.addEventListener('change', () => { settings().barPos = bp.value; ctx().saveSettingsDebounced(); renderBar(); });
     }
     for (const key of ['charDefault', 'showBar', 'notify']) {
         const cb = document.getElementById(`cpm_${key}`);

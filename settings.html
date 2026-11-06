@@ -44,7 +44,16 @@
                 <div class="cpm-set-head">보이기</div>
                 <label class="checkbox_label" for="cpm_showBar">
                     <input type="checkbox" id="cpm_showBar">
-                    <span>프롬프트 목록 위에 「이 채팅 기억」 줄</span>
+                    <span>프롬프트 칸에 「이 채팅 기억」 줄 보이기</span>
+                </label>
+                <label class="cpm-set-row" for="cpm_barPos">
+                    <span>줄 위치</span>
+                    <select id="cpm_barPos" class="text_pole">
+                        <option value="top">목록 위</option>
+                        <option value="head">「총 토큰」 줄 옆</option>
+                        <option value="under">「총 토큰」 줄 아래</option>
+                        <option value="bottom">목록 맨 밑 (토글을 다 지나서)</option>
+                    </select>
                 </label>
                 <label class="checkbox_label" for="cpm_notify">
                     <input type="checkbox" id="cpm_notify">
