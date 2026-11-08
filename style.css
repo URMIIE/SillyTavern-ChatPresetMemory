@@ -228,6 +228,12 @@
 /* 프롬프트 그룹 도구 줄 안에 들어갈 때 (스위치 · ⓘ 는 왼쪽 끝) */
 .cpm-bar.cpm-inpf { display: flex; align-items: center; flex: none; width: auto; min-height: 0; margin: 0; gap: 0; }
 .cpm-bar.cpm-inpf-switch { margin-right: auto; min-width: 0; }
+/* 도구 줄은 오른쪽 정렬이라 글꼴이 넓어 한 줄에 다 안 들어가면 넘친 만큼 왼쪽 밖으로 밀려남 →
+   우리가 들어간 줄은 왼쪽부터 놓고(도구 단추는 margin-right: auto 로 그대로 오른쪽 끝), 모자라면 「이 채팅 기억」 글자를 접음 */
+#completion_prompt_manager .pf-toolbar:has(> .cpm-inpf-switch) { justify-content: flex-start; }
+.cpm-bar.cpm-inpf-switch { flex: 0 1 auto; }
+.cpm-bar.cpm-inpf-switch .cpm-switch { flex: 0 1 auto; min-width: 0; }
+.cpm-bar.cpm-inpf-switch .cpm-text:not(.sr-only) { white-space: normal; }
 
 /* ⓘ 창은 높이를 고정 — 알약을 켜고 끄거나 칸을 펼쳐도 창이 커졌다 줄었다 움직이지 않게, 넘치는 내용은 창 안에서 스크롤 */
 .popup:has(.cpm-edit) { height: min(85dvh, 760px); min-height: 0; }
