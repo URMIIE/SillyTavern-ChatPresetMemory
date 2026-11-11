@@ -42,6 +42,10 @@ function settings() {
     if (!all[MODULE] || typeof all[MODULE] !== 'object') all[MODULE] = {};
     for (const [k, v] of Object.entries(DEFAULTS)) if (!(k in all[MODULE])) all[MODULE][k] = structuredClone(v);
     if (!all[MODULE].byChar || typeof all[MODULE].byChar !== 'object') all[MODULE].byChar = {};
+    if (!all[MODULE].byCharTrimmed) {   // 예전에 쌓인 캐릭터별 마지막 설정도 한 번 줄임
+        for (const [k, v] of Object.entries(all[MODULE].byChar)) all[MODULE].byChar[k] = trimChar(v);
+        all[MODULE].byCharTrimmed = true;
+    }
     if (!all[MODULE].pending || typeof all[MODULE].pending !== 'object') all[MODULE].pending = {};
     if (!Array.isArray(all[MODULE].files)) all[MODULE].files = [];   // 기억 파일이 있는 캐릭터 · 그룹 키 — 주인이 없어진 파일을 지우려고
     // 「켜기」 · 「마지막 프리셋으로도 바꾸기」는 설정 칸에서 뺌 — 늘 켬 (확장 전체는 실리태번 확장 관리에서 끔)
@@ -94,14 +98,28 @@ function fileOf(key) {
     const slug = String(key).replace(/\.png$/i, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30);
     return `chat-preset-memory.${slug || 'char'}-${h.toString(36)}.json`;   // 영문 · 숫자가 없는 이름(한글 · 한자)은 char-해시
 }
+/** 파일이 없을 때만 null — 서버 오류 · 끊김 · 깨진 글은 오류로 던짐
+ *  (예전엔 모두 「없음」으로 봐서, 잠깐 못 읽은 순간에 저장하면 그 캐릭터의 다른 채팅 기억을 빼고 덮어쓰거나 파일을 지웠음) */
 async function readJson(name) {
-    try { const r = await fetch(`/user/files/${name}`, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch { /* 없음 */ }
-    return null;
+    const r = await fetch(`/user/files/${name}`, { cache: 'no-store' });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`read ${name}: ${r.status}`);
+    return await r.json();
 }
 async function writeJson(name, obj) {
     const bytes = new TextEncoder().encode(JSON.stringify(obj)); let bin = '';
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));   // 큰 파일도 한 번에 펼치지 않게
-    await fetch('/api/files/upload', { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify({ name, data: btoa(bin) }) });
+    const r = await fetch('/api/files/upload', { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify({ name, data: btoa(bin) }) });
+    if (!r.ok) throw new Error(`write ${name}: ${r.status}`);
+}
+// 저장이 끝내 안 되면 한 번만 알림 (다시 저장되면 풀림)
+let saveWarned = false;
+let retryTimer = null;
+function warnSaveFailed(err) {
+    console.warn(LOG, 'save', err);
+    if (saveWarned) return;
+    saveWarned = true;
+    toastr.warning(tr`Couldn't save this chat's memory to the server. It will keep trying.`, tr`Chat Preset Memory`);
 }
 async function removeFile(name) {
     await fetch('/api/files/delete', { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify({ path: `user/files/${name}` }) }).catch(() => {});
@@ -128,7 +146,7 @@ async function pruneFiles() {
     }
 }
 let legacyReady = null;
-const loadLegacy = () => legacyReady ??= readJson(LEGACY_FILE).then(j => j?.chats && typeof j.chats === 'object' ? j : null);
+const loadLegacy = () => legacyReady ??= readJson(LEGACY_FILE).then(j => j?.chats && typeof j.chats === 'object' ? j : null).catch(err => { legacyReady = null; throw err; });
 /** 이 캐릭터(그룹)의 기억 파일을 읽음 — 예전 한 파일에 이 캐릭터 채팅이 있으면 여기로 옮김 */
 function loadOwner(key = charKey()) {
     if (!key) return Promise.resolve();
@@ -153,7 +171,7 @@ function loadOwner(key = charKey()) {
         }
         await saveStore();
         if (Object.keys(legacy.chats).length) await writeJson(LEGACY_FILE, legacy); else await removeFile(LEGACY_FILE);
-    })().catch(err => console.warn(LOG, 'load', err)));
+    })().catch(err => { console.warn(LOG, 'load', err); loaded.delete(key); }));   // 못 읽었으면 다음에 다시 읽음
     return loaded.get(key);
 }
 /** 캐릭터 · 그룹의 채팅 id 목록 */
@@ -217,7 +235,9 @@ async function saveStoreNow() {
     for (const id of ids) { const k = ownerOf[id]; if (k) (byOwner.get(k) || byOwner.set(k, []).get(k)).push(id); }
     for (const [key, list] of byOwner) {
         // 다른 탭 · 기기가 같은 순간에 같은 파일을 쓰면 한쪽 변경이 덮일 수 있음 → 쓴 뒤 다시 읽어 내 변경이 빠졌으면 합쳐서 다시 씀
-        for (let tries = 0; tries < 4; tries++) {
+        // 읽기 · 쓰기가 실패하거나 끝내 맞지 않으면 그 채팅들을 「저장할 것」으로 되돌림 (다음 변경 때 다시 저장)
+        let ok = false;
+        try { for (let tries = 0; tries < 4; tries++) {
             if (gone.has(key)) break;
             const name = fileOf(key);
             const latest = await readJson(name) || {};
@@ -235,8 +255,14 @@ async function saveStoreNow() {
             const back = check?.chats || {};
             // 채팅 줄도, 그 줄이 가리키는 토글 id 목록(앞부분)도 그대로여야 함
             const idsOk = wantIds.every(([p, l]) => l.every((x, i) => check?.ids?.[p]?.[i] === x));
-            if (idsOk && list.every(id => JSON.stringify(back[id] ?? null) === want[id])) break;
-        }
+            if (idsOk && list.every(id => JSON.stringify(back[id] ?? null) === want[id])) { ok = true; break; }
+        } } catch (err) { console.warn(LOG, 'save', err); }
+        if (gone.has(key)) continue;
+        if (ok) { saveWarned = false; continue; }
+        for (const id of list) dirty.add(id);
+        warnSaveFailed(`${fileOf(key)}`);
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => saveStore().catch(err => console.warn(LOG, 'save', err)), 30000);   // 변경이 없어도 30초 뒤 한 번 더
     }
 }
 function scheduleStore(urgent) {
@@ -531,13 +557,25 @@ function store(snap, extra = {}) {
     const key = charKey();
     if (key && settings().charDefault) {
         const before = settings().byChar[key];
-        settings().byChar[key] = merged(before, snap);
+        settings().byChar[key] = trimChar(merged(before, snap));
         if (!before) renderChars();
         // 캐릭터별 마지막 설정은 새 채팅을 열 때만 쓰므로, 처음 적을 때와 프리셋이 바뀔 때만 바로 저장.
         // 토글만 바뀌었으면 메모리에 두고 실리태번의 다음 설정 저장에 같이 실림 (토글마다 설정 파일 전체를 한 번 더 쓰던 것)
         if (!before || nfc(before.preset) !== nfc(snap.preset)) c.saveSettingsDebounced();
     }
     renderBar();
+}
+
+/** 캐릭터별 마지막 설정은 새 채팅을 열 때만 쓰므로 최근에 쓴 프리셋 3개의 토글만 남김
+ *  (예전엔 쓴 적 있는 프리셋 토글을 전부 들고 있어 설정 파일이 캐릭터 하나에 수백 KB까지 커졌음) */
+const CHAR_PRESETS = 3;
+function trimChar(m) {
+    const keys = Object.keys(m?.byPreset || {});
+    if (keys.length <= CHAR_PRESETS) return m;
+    // 넣은 순서가 쓴 순서(merged 가 지금 프리셋을 맨 뒤에 다시 넣음) — 지금 프리셋은 늘 남김
+    const keep = new Set(keys.slice(-CHAR_PRESETS));
+    for (const k of keys) if (nfc(k) === nfc(m.preset)) keep.add(k);
+    return { ...m, byPreset: Object.fromEntries(keys.filter(k => keep.has(k)).map(k => [k, m.byPreset[k]])) };
 }
 
 const sameAsMemory = (mem, snap) => !!mem && nfc(mem.preset) === nfc(snap.preset)
@@ -1486,7 +1524,7 @@ jQuery(async () => {
     try { await addSettingsPanel(); } catch (err) { console.warn(LOG, 'settings panel', err); }
     const { eventSource, event_types } = ctx();
     // 실리태번은 이벤트 처리를 하나씩 기다리므로, 일부러 쉬는 이 처리가 채팅 열기 · 첫 화면을 막지 않게 따로 돌림
-    eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
+    eventSource.on(event_types.CHAT_CHANGED, () => { void onChatChanged().catch(err => console.warn(LOG, err)); });
     // 채팅 이름을 바꾸면 기억도 새 이름으로, 지우면 기억도 지움
     const bare = n => String(n || '').replace(/\.jsonl$/, '');
     eventSource.on(event_types.CHAT_RENAMED, async d => { await loadOwner(charKey()); const a = bare(d?.oldFileName), b = bare(d?.newFileName); if (a && b && STORE.chats[a]) { putMemory(b, STORE.chats[a], true, ownerOf[a]); putMemory(a, undefined); } });
@@ -1496,6 +1534,7 @@ jQuery(async () => {
     eventSource.on(event_types.CHARACTER_DELETED, async ({ character } = {}) => {
         const key = character?.avatar; if (!key) return;
         gone.add(key);
+        if (settings().byChar[key]) { delete settings().byChar[key]; ctx().saveSettingsDebounced(); renderChars(); }
         for (const id of Object.keys(ownerOf)) if (ownerOf[id] === key) { delete ownerOf[id]; delete STORE.chats[id]; dirty.delete(id); }
         loaded.delete(key);
         await saving.catch(() => {});   // 이미 돌고 있는 저장이 끝난 뒤에 지움
@@ -1503,8 +1542,10 @@ jQuery(async () => {
     });
     eventSource.on(event_types.CHARACTER_RENAMED, async (oldKey, newKey) => {
         if (!oldKey || !newKey || oldKey === newKey) return;
-        const file = await readJson(fileOf(oldKey)); if (!file?.chats) return;
-        await writeJson(fileOf(newKey), { ...file, owner: newKey }); await removeFile(fileOf(oldKey)); noteFile(oldKey, false); noteFile(newKey, true);
+        try {
+            const file = await readJson(fileOf(oldKey)); if (!file?.chats) return;
+            await writeJson(fileOf(newKey), { ...file, owner: newKey }); await removeFile(fileOf(oldKey)); noteFile(oldKey, false); noteFile(newKey, true);
+        } catch (err) { return void warnSaveFailed(err); }   // 옛 파일은 그대로 둠
         for (const id of Object.keys(ownerOf)) if (ownerOf[id] === oldKey) ownerOf[id] = newKey;
         loaded.delete(oldKey); loaded.delete(newKey);
     });
