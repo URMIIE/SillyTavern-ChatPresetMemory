@@ -1353,9 +1353,19 @@ function placeOwnBar(host, list, bar) {
     else if (spot === 'bottom') list.after(bar);
     else list.before(bar);
 }
+// 막대는 보이는 내용이 바뀔 때만 다시 만듦 — 토글을 누를 때마다 지우고 다시 넣으면 목록을 지켜보는 쪽들이 매번 다시 그렸음
+let barKey = '';
 function renderBar() {
     const list = document.getElementById('completion_prompt_manager_list');
     const host = document.getElementById('completion_prompt_manager');
+    {
+        const c = ctx(), mem = memory(), en = settings().enabled;
+        const key = [c.mainApi, c.getCurrentChatId(), en, en && !mem?.off, mem?.preset, settings().showBar, barSpot(), !!sharedToolbar(host), !!list].join('|');
+        const panelOk = !(settings().showBar && list && host && c.getCurrentChatId()) || !!host.querySelector('.cpm-bar');
+        const hereOk = !document.getElementById('cpm_here') || !c.getCurrentChatId() || !!document.querySelector('#cpm_here .cpm-bar');
+        if (key === barKey && panelOk && hereOk) return;
+        barKey = key;
+    }
     document.querySelectorAll('.cpm-bar').forEach(el => el.remove());
     const here = document.getElementById('cpm_here');
     if (here) here.innerHTML = ctx().mainApi !== 'openai' ? `<small class="cpm-help">${tr`This extension works only when you connect with a Chat Completion API.`}</small>`
@@ -1580,7 +1590,9 @@ jQuery(async () => {
     // 캐릭터 카드 칸이 바뀌면(저장판 「사용」 · 직접 고침) 캐릭터 AU 를 따라 기억
     eventSource.on(event_types.CHARACTER_EDITED, () => { if (kindsOf().card) remember(); });
     // 로어북 항목을 켜고 끄면(월드인포 편집 창) 그 상태를 기억
-    eventSource.on(event_types.WORLDINFO_UPDATED, () => { if (!restoring && kindsOf().world) refreshEntries().then(remember); });
+    // 로어북을 저장할 때마다 오므로 몰아서 한 번만 다시 읽음
+    let wiTimer = null;
+    eventSource.on(event_types.WORLDINFO_UPDATED, () => { if (restoring || !kindsOf().world) return; clearTimeout(wiTimer); wiTimer = setTimeout(() => refreshEntries().then(remember), 400); });
     // 프리셋을 바꾸는 동안(설정이 여러 번 저장됨)은 기억하지 않다가, 다 바뀐 뒤 그 프리셋 기준으로 처리
     eventSource.on(event_types.OAI_PRESET_CHANGED_BEFORE, () => { if (!restoring) switching = true; });
     eventSource.on(event_types.OAI_PRESET_CHANGED_AFTER, () => setTimeout(onPresetChanged, 300));
