@@ -6,7 +6,7 @@
 //     kinds: { toggles, connection, regex, world, persona, card } 무엇을 기억할지, at, off? }
 // 기억은 채팅 파일이 아니라 서버 파일 user/files/chat-preset-memory.<캐릭터 · 그룹>-<번호>.json { owner, ids, chats: { 채팅 id: 기억 } } 에 둠
 // — 채팅 파일을 다시 쓰지 않아 최근 채팅 목록 순서가 바뀌지 않음. 예전 기억(chat_metadata · 한 파일 chat-preset-memory.json)은 읽어서 옮김
-// 캐릭터별 마지막 설정: extension settings byChar[avatar | group:id] = 같은 꼴 (새 채팅을 열 때 씀)
+// 캐릭터별 마지막 설정(새 채팅을 열 때 씀): 몸통은 캐릭터 기억 파일 last, extension settings byChar[avatar | group:id] 엔 목록용 {preset, at}
 
 import { oai_settings, promptManager, getPresetApplicationPromise, getChatCompletionModel } from '../../../openai.js';
 import { extension_settings } from '../../../extensions.js';
@@ -90,6 +90,10 @@ let STORE = { chats: new Proxy({}, {
 const ownerOf = {};                               // 채팅 id → 캐릭터 · 그룹 키
 const loaded = new Map();                         // 캐릭터 · 그룹 키 → 읽기 Promise
 const dirty = new Set();
+// 캐릭터별 마지막 설정(새 채팅 시작값) 몸통은 그 캐릭터 기억 파일의 last 칸에 — 설정 파일엔 목록용 {preset, at} 만
+// (설정 파일에 두면 토글 · 테마를 바꿀 때마다 그 덩어리까지 서버로 다시 보냈음)
+const lastOf = {};                                // 캐릭터 · 그룹 키 → 마지막 설정(풀린 꼴)
+const dirtyLast = new Set();
 const gone = new Set();                           // 지운 캐릭터 · 그룹 — 늦게 도는 저장이 파일을 다시 만들지 않게
 let storeTimer = null;
 function fileOf(key) {
@@ -157,6 +161,15 @@ function loadOwner(key = charKey()) {
             if (!m || typeof m !== 'object') continue;
             ownerOf[id] = key;
             if (!dirty.has(id)) STORE.chats[id] = lazy(m, file.ids);
+        }
+        if (file?.last && !dirtyLast.has(key)) lastOf[key] = unpackChat(file.last, file.ids);
+        // 예전처럼 설정 파일에 몸통이 있으면 이 파일로 옮기고 설정엔 목록용만 남김
+        const old = settings().byChar[key];
+        if (old?.byPreset) {
+            if (!lastOf[key]) { lastOf[key] = old; dirtyLast.add(key); }
+            settings().byChar[key] = { preset: old.preset, at: old.at };
+            ctx().saveSettingsDebounced();
+            if (dirtyLast.has(key)) await saveStore();
         }
         const legacy = await loadLegacy();
         if (!legacy || !Object.keys(legacy.chats).length) return;
@@ -231,8 +244,10 @@ function saveStore() {
 }
 async function saveStoreNow() {
     const ids = [...dirty]; dirty.clear();
+    const lastKeys = new Set(dirtyLast); dirtyLast.clear();
     const byOwner = new Map();
     for (const id of ids) { const k = ownerOf[id]; if (k) (byOwner.get(k) || byOwner.set(k, []).get(k)).push(id); }
+    for (const k of lastKeys) if (!byOwner.has(k)) byOwner.set(k, []);
     for (const [key, list] of byOwner) {
         // 다른 탭 · 기기가 같은 순간에 같은 파일을 쓰면 한쪽 변경이 덮일 수 있음 → 쓴 뒤 다시 읽어 내 변경이 빠졌으면 합쳐서 다시 씀
         // 읽기 · 쓰기가 실패하거나 끝내 맞지 않으면 그 채팅들을 「저장할 것」으로 되돌림 (다음 변경 때 다시 저장)
@@ -247,19 +262,23 @@ async function saveStoreNow() {
             for (const [id, m] of Object.entries(chats)) if (!list.includes(id) && !dirty.has(id)) { STORE.chats[id] = lazy(m, ids); ownerOf[id] = key; }
             const want = Object.fromEntries(list.map(id => [id, JSON.stringify(chats[id] ?? null)]));
             const presets = new Set(list.flatMap(id => Object.keys(chats[id]?.byPreset || {})));
+            const last = lastKeys.has(key) && lastOf[key] ? packChat(lastOf[key], ids) : latest.last;
+            for (const p of Object.keys(last?.byPreset || {})) presets.add(p);
             const wantIds = [...presets].map(p => [p, ids[p] || []]);
-            if (Object.keys(chats).length) { await writeJson(name, { owner: key, ids, chats }); noteFile(key, true); }
+            if (Object.keys(chats).length || last) { await writeJson(name, { owner: key, ids, chats, ...(last ? { last } : {}) }); noteFile(key, true); }
             else { await removeFile(name); noteFile(key, false); }
             await new Promise(r => setTimeout(r, 150 + Math.random() * 250));
             const check = await readJson(name);
             const back = check?.chats || {};
             // 채팅 줄도, 그 줄이 가리키는 토글 id 목록(앞부분)도 그대로여야 함
             const idsOk = wantIds.every(([p, l]) => l.every((x, i) => check?.ids?.[p]?.[i] === x));
-            if (idsOk && list.every(id => JSON.stringify(back[id] ?? null) === want[id])) { ok = true; break; }
+            const lastOk = !lastKeys.has(key) || JSON.stringify(check?.last ?? null) === JSON.stringify(last ?? null);
+            if (idsOk && lastOk && list.every(id => JSON.stringify(back[id] ?? null) === want[id])) { ok = true; break; }
         } } catch (err) { console.warn(LOG, 'save', err); }
         if (gone.has(key)) continue;
         if (ok) { saveWarned = false; continue; }
         for (const id of list) dirty.add(id);
+        if (lastKeys.has(key)) dirtyLast.add(key);
         warnSaveFailed(`${fileOf(key)}`);
         clearTimeout(retryTimer);
         retryTimer = setTimeout(() => saveStore().catch(err => console.warn(LOG, 'save', err)), 30000);   // 변경이 없어도 30초 뒤 한 번 더
@@ -556,12 +575,16 @@ function store(snap, extra = {}) {
     putMemory(c.getCurrentChatId(), next, urgent);
     const key = charKey();
     if (key && settings().charDefault) {
-        const before = settings().byChar[key];
-        settings().byChar[key] = trimChar(merged(before, snap));
-        if (!before) renderChars();
+        const stub = settings().byChar[key];
+        const before = lastOf[key] || (stub?.byPreset ? stub : null);
+        lastOf[key] = trimChar(merged(before, snap));
+        dirtyLast.add(key);
+        scheduleStore(false);
+        settings().byChar[key] = { preset: snap.preset, at: Date.now() };
+        if (!stub) renderChars();
         // 캐릭터별 마지막 설정은 새 채팅을 열 때만 쓰므로, 처음 적을 때와 프리셋이 바뀔 때만 바로 저장.
         // 토글만 바뀌었으면 메모리에 두고 실리태번의 다음 설정 저장에 같이 실림 (토글마다 설정 파일 전체를 한 번 더 쓰던 것)
-        if (!before || nfc(before.preset) !== nfc(snap.preset)) c.saveSettingsDebounced();
+        if (!stub || stub.byPreset || nfc(stub.preset) !== nfc(snap.preset)) c.saveSettingsDebounced();
     }
     renderBar();
 }
@@ -621,7 +644,8 @@ async function applyToggles(toggles) {
         }
     }
     if (changed) {
-        promptManager.render();
+        // 채팅을 열면 실리태번도 곧 목록을 다시 그림(시험 생성 포함) — 미뤄 그리기로 합쳐 시험 생성을 한 번만
+        if (typeof promptManager.renderDebounced === 'function') promptManager.renderDebounced(); else promptManager.render();
         // 저장은 기다리지 않음 (기다리는 동안 기억이 늦어지고 화면도 잠깐 멈춤)
         Promise.resolve(promptManager.saveServiceSettings()).catch(err => console.warn(LOG, err));
     }
@@ -816,7 +840,8 @@ async function onChatChanged() {
     const job = (async () => {
         if (!usable()) return;
         const mem = memory();
-        const fallback = settings().charDefault ? settings().byChar[charKey()] : null;
+        const stub = settings().charDefault ? settings().byChar[charKey()] : null;   // 목록에서 지웠으면 안 씀
+        const fallback = stub ? (lastOf[charKey()] || (stub.byPreset ? stub : null)) : null;
         if (mem && !mem.off) await restore(mem, tr`Restored this chat's settings`, my);
         else if (!mem && fallback) await restore(fallback, tr`Started from this character's last settings`, my);
     })().catch(err => console.warn(LOG, err));
@@ -1534,6 +1559,7 @@ jQuery(async () => {
     eventSource.on(event_types.CHARACTER_DELETED, async ({ character } = {}) => {
         const key = character?.avatar; if (!key) return;
         gone.add(key);
+        delete lastOf[key]; dirtyLast.delete(key);
         if (settings().byChar[key]) { delete settings().byChar[key]; ctx().saveSettingsDebounced(); renderChars(); }
         for (const id of Object.keys(ownerOf)) if (ownerOf[id] === key) { delete ownerOf[id]; delete STORE.chats[id]; dirty.delete(id); }
         loaded.delete(key);
@@ -1564,5 +1590,7 @@ jQuery(async () => {
         if (!dryRun && type !== 'quiet') remember();
     });
     watchPromptManager();
-    if (event_types.APP_READY) eventSource.on(event_types.APP_READY, () => { syncAuOption(); renderBar(); pruneFiles().catch(err => console.warn(LOG, 'prune', err)); });
+    if (event_types.APP_READY) eventSource.on(event_types.APP_READY, () => { syncAuOption(); renderBar(); pruneFiles().catch(err => console.warn(LOG, 'prune', err));
+        // 설정 파일에 남은 예전 몸통을 캐릭터 파일로 (한 번)
+        (async () => { for (const k of Object.keys(settings().byChar)) if (settings().byChar[k]?.byPreset) await loadOwner(k); })().catch(err => console.warn(LOG, 'move last', err)); });
 });
