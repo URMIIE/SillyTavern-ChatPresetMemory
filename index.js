@@ -634,13 +634,17 @@ async function switchPreset(name) {
 }
 
 /** 지금 프리셋에 기억한 토글을 맞춤 → 바꾼 개수 */
+// 방금 맞추며 바꾼 토글 이름 (알림에서 펼쳐 봄)
+let lastToggleChanges = { on: [], off: [] };
 async function applyToggles(toggles) {
+    lastToggleChanges = { on: [], off: [] };
     if (!toggles) return 0;
     let changed = 0;
     for (const e of promptManager.getPromptOrderForCharacter(promptManager.activeCharacter) || []) {
         if (e.identifier in toggles && !!e.enabled !== toggles[e.identifier]) {
             e.enabled = toggles[e.identifier];
             changed++;
+            (e.enabled ? lastToggleChanges.on : lastToggleChanges.off).push(promptManager.getPromptById(e.identifier)?.name || e.identifier);
         }
     }
     if (changed) {
@@ -707,12 +711,23 @@ function notice(head, notes, { onUndo, timeOut = 8000, always = false } = {}) {
     const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
     const show = settings().notifyKinds;
     const shown = notes.filter(([, , kind]) => !kind || show[kind] !== false);
-    const rows = shown.map(([k, v]) => `<span class="cpm-tn-k">${esc(k)}</span><span class="cpm-tn-v">${esc(v)}</span>`).join('');
+    // 4번째 칸(바뀐 토글 { on, off })이 있으면 그 줄 끝에 작은 「보기」 — 누르면 알림 안에서 켬 | 끔 두 칸으로 펼침
+    const detail = shown.find(n => n[3] && (n[3].on.length || n[3].off.length))?.[3];
+    const rows = shown.map(([k, v, , d]) => `<span class="cpm-tn-k">${esc(k)}</span><span class="cpm-tn-v"><span class="cpm-tn-text">${esc(v)}</span>${d && d === detail ? `<button type="button" class="cpm-tn-see">${esc(tr`View`)}</button>` : ''}</span>`).join('');
+    const col = (cls, title, list) => `<div class="cpm-tn-box ${cls}"><div class="cpm-tn-grp">${esc(title)} ${list.length}</div>${list.map(n => `<div class="cpm-tn-row" title="${esc(n)}">${esc(n)}</div>`).join('')}</div>`;
+    const lists = detail ? `<div class="cpm-tn-list">${col('cpm-tn-on', tr`On`, detail.on)}${col('cpm-tn-off', tr`Off`, detail.off)}</div>` : '';
     const undo = onUndo ? `<u>${esc(tr`Undo`)}</u>` : '';
-    const t = toastr.info(`<div class="cpm-tn-head"><span>${esc(head)}</span>${undo}</div>${rows ? `<div class="cpm-tn">${rows}</div>` : ''}`, tr`Chat Preset Memory`, {
+    const t = toastr.info(`<div class="cpm-tn-head"><span>${esc(head)}</span>${undo}</div>${rows ? `<div class="cpm-tn">${rows}</div>` : ''}${lists}`, tr`Chat Preset Memory`, {
         escapeHtml: false, timeOut, extendedTimeOut: 4000, ...(onUndo ? { onclick: onUndo } : {}),
     });
     if (notes.length) t?.attr?.('title', notes.map(([k, v]) => `${k}: ${v}`).join('\n'));
+    t?.find?.('.cpm-tn-see').on('click', ev => {
+        ev.stopPropagation();   // 알림을 누르면 되돌리기라서
+        const open = t.toggleClass('cpm-tn-open').hasClass('cpm-tn-open');
+        ev.currentTarget.textContent = open ? tr`Hide` : tr`View`;
+        if (open) { t.trigger('mouseenter'); t.off('mouseleave'); t.removeAttr('title'); }   // 펼친 동안은 저절로 안 닫힘
+    });
+    t?.find?.('.cpm-tn-list').on('click', ev => ev.stopPropagation());
 }
 
 /** 채팅을 열 때: 마지막 프리셋으로 바꾸고(설정에 따라), 그 프리셋에서 기억한 토글을 맞춤 */
@@ -747,7 +762,7 @@ async function restore(mem, label, my) {
         if (stale()) return;
         if (kinds.toggles) {
             const changed = await applyToggles(togglesFor(mem, currentPreset()));
-            if (changed) note(tr`Toggles`, tr`${changed} changed`, 'toggles');
+            if (changed) notes.push([tr`Toggles`, tr`${changed} changed`, 'toggles', lastToggleChanges]);
         }
         if (stale()) return;
         if (kinds.world) {
@@ -799,7 +814,7 @@ async function onPresetChanged() {
         restoring = true;
         try {
             const changed = await applyToggles(togglesFor(mem, currentPreset()));
-            if (changed) notice(tr`Restored this chat's toggles for this preset`, [[tr`Toggles`, tr`${changed} changed`, 'toggles']], { timeOut: 4000 });
+            if (changed) notice(tr`Restored this chat's toggles for this preset`, [[tr`Toggles`, tr`${changed} changed`, 'toggles', lastToggleChanges]], { timeOut: 4000 });
         } finally {
             restoring = false;
         }
@@ -964,6 +979,41 @@ function makePick({ items, value, onPick, empty = '—' }) {
     return wrap;
 }
 
+// 업데이트 내역(CHANGELOG.json): 새 판 내역을 아직 안 봤으면 ⓘ 에 N, ⓘ 창 맨 위에 한 번 보여 줌(본 판은 설정 seenLog)
+// 설정 칸은 접어 두거나 숨긴 사람이 있어서, 늘 보이는 ⓘ 에 표시함
+let version = '';
+let changelog = null;
+const loadLog = () => changelog ??= fetch(new URL('CHANGELOG.json', import.meta.url), { cache: 'no-cache' })
+    .then(r => r.json()).then(j => Array.isArray(j) ? j : []).catch(() => { changelog = null; return []; });
+const unseenLog = () => !!version && settings().seenLog !== version;
+const paintNew = () => document.querySelectorAll('.cpm-info-btn').forEach(b => {
+    b.classList.toggle('cpm-new', unseenLog());
+    b.title = unseenLog() ? tr`New update. Open to see what changed.` : tr`What this chat remembers`;
+});
+async function loadVersion() {
+    try { version = String((await (await fetch(new URL('manifest.json', import.meta.url), { cache: 'no-cache' })).json()).version || ''); } catch { version = ''; }
+    paintNew();
+}
+// 판 하나: 이번 판은 펼친 상자, 지난 판들은 접은 묶음 하나에
+function logHtml(log, e) {
+    const items = v => `<ul>${(v.items || []).map(t => `<li>${e(t)}</li>`).join('')}</ul>`;
+    const head = v => `<b>${e(v.version)}</b><small>${e(v.date || '')}</small>`;
+    const [now, ...old] = log;
+    return `<div class="cpm-log-now"><div class="cpm-log-head">${e(tr`What's new`)} ${head(now)}</div>${items(now)}</div>`
+        + (old.length ? `<details class="cpm-group cpm-log-old"><summary><span class="cpm-g-title">${e(tr`Earlier updates`)}</span><span class="cpm-count">${old.length}</span></summary>`
+            + `<div class="cpm-log-scroll">${old.map(v => `<div class="cpm-log-head">${head(v)}</div>${items(v)}`).join('')}</div></details>` : '');
+}
+async function showChangelog() {
+    const e = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    const log = await loadLog();
+    if (!log.length) return void toastr.info(tr`Couldn't read the update history.`, tr`Chat Preset Memory`);
+    const box = document.createElement('div');
+    box.className = 'cpm-info cpm-edit cpm-log';
+    box.innerHTML = `<h3>${e(tr`Update history`)}</h3>${logHtml(log, e)}`;
+    box.querySelector('.cpm-log-old')?.setAttribute('open', '');
+    await ctx().callGenericPopup(box, ctx().POPUP_TYPE.TEXT, '');
+}
+
 // ⓘ 창: 이 채팅이 기억하는 것을 보고 바로 고침 — 여기서 바꾸면 지금 설정이 바뀌고 기억도 따라감 (따로 저장 단추 없음)
 async function showMemory() {
     const mem = memory();
@@ -980,9 +1030,13 @@ async function showMemory() {
     let openEntries = null;
     try { openEntries = await readEntries(); } catch (err) { console.warn(LOG, 'world info', err); }
     const before = { preset: currentPreset(), toggles: snapshot({ toggles: true }).toggles, world: worldState(), entries: openEntries, regex: regexState(), connection: connectionState(), card: cardState() };
+    // 새 판 내역을 아직 안 봤으면 맨 위에 한 번 보여 주고 본 것으로 적음
+    const log = unseenLog() ? await loadLog() : [];
+    if (log.length) { settings().seenLog = version; ctx().saveSettingsDebounced(); paintNew(); }
     root.innerHTML = `
-        <h3>${e(tr`What this chat remembers`)}</h3>
+        <h3 class="cpm-edit-title">${e(tr`What this chat remembers`)}${version ? `<button type="button" class="cpm-ver" title="${e(tr`Update history`)}">${e(version)}</button>` : ''}</h3>
         <p class="cpm-edit-sub">${e(tr`Changes apply right away. Cancel puts everything back as it was when you opened this.`)}</p>
+        ${log.length ? `<div class="cpm-log cpm-log-top">${logHtml(log, e)}</div>` : ''}
         <div class="cpm-edit-top">
             <label class="cpm-switch"><input type="checkbox" role="switch" class="cpm-edit-on" ${mem?.off ? '' : 'checked'}><span class="cpm-track" aria-hidden="true"></span><span>${e(tr`Remember this chat`)}</span></label>
             <span class="cpm-kinds" role="group" aria-label="${e(tr`What to remember`)}">${kindPills(kinds, e)}</span>
@@ -994,6 +1048,7 @@ async function showMemory() {
         <div class="cpm-sec" data-sec="persona"></div>
         <div class="cpm-sec" data-sec="card"></div>
         <div class="cpm-sec cpm-copy" data-sec="copy"></div>`;
+    root.querySelector('.cpm-ver')?.addEventListener('click', () => void showChangelog());
     const sec = k => root.querySelector(`[data-sec="${k}"]`);
     // 칸을 다시 그려도 펼친 줄 · 목록 스크롤 · 창 스크롤은 그대로
     const keep = async (k, paint) => {
@@ -1388,7 +1443,7 @@ function renderBar() {
             <span class="cpm-track" aria-hidden="true"></span>
             <span class="cpm-text">${e(tr`Remember this chat`)}</span>
         </label>
-        <button type="button" class="cpm-info-btn" title="${e(tr`What this chat remembers`)}" aria-label="${e(tr`What this chat remembers`)}"><i class="fa-solid fa-circle-info"></i></button>`;
+        <button type="button" class="cpm-info-btn${unseenLog() ? ' cpm-new' : ''}" title="${e(unseenLog() ? tr`New update. Open to see what changed.` : tr`What this chat remembers`)}" aria-label="${e(tr`What this chat remembers`)}"><i class="fa-solid fa-circle-info"></i></button>`;
     bindBar(bar);
     // 확장 설정 칸에는 늘 · 프롬프트 목록 위에는 설정을 켰을 때만 (같은 막대 두 벌)
     if (here) here.append(bar);
@@ -1555,6 +1610,7 @@ globalThis[Symbol.for('chat-preset-memory.api')] = {
 jQuery(async () => {
     settings();
     await loadKo();
+    void loadVersion();
     loadOwner(charKey());
     try { await addSettingsPanel(); } catch (err) { console.warn(LOG, 'settings panel', err); }
     const { eventSource, event_types } = ctx();

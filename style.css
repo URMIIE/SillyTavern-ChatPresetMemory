@@ -236,9 +236,9 @@
 .cpm-bar.cpm-inpf-switch .cpm-text:not(.sr-only) { white-space: normal; }
 
 /* ⓘ 창은 높이를 고정 — 알약을 켜고 끄거나 칸을 펼쳐도 창이 커졌다 줄었다 움직이지 않게, 넘치는 내용은 창 안에서 스크롤 */
-.popup:has(.cpm-edit) { height: min(85dvh, 760px); min-height: 0; }
-.popup:has(.cpm-edit) .popup-body { height: 100%; min-height: 0; }
-.popup:has(.cpm-edit) .popup-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.popup:has(.cpm-edit:not(.cpm-log)) { height: min(85dvh, 760px); min-height: 0; }
+.popup:has(.cpm-edit:not(.cpm-log)) .popup-body { height: 100%; min-height: 0; }
+.popup:has(.cpm-edit:not(.cpm-log)) .popup-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
 /* 한 줄 막대의 「이 채팅 기억」: 한글 글자는 글자 칸 안에서 아래쪽에 그려져 스위치 · 아이콘보다 낮아 보임 → 글자 크기에 비례해 살짝 올림 */
 .cpm-bar .cpm-text { position: relative; top: -0.12em; }
@@ -336,3 +336,34 @@
 #completion_prompt_manager .completion_prompt_manager_header:has(> .cpm-bar) > .pf-toolbar.pf-bar-head { margin-left: 0; }
 #cpm_settings .cpm-set-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 #cpm_settings .cpm-set-row select { width: auto; flex: 1 1 auto; margin: 0; }
+
+/* ---- 알림: 바뀐 토글 펼쳐 보기 (켬 | 끔 두 칸, 칸마다 높이 고정 · 안에서 스크롤) ---- */
+.cpm-tn .cpm-tn-v { display: flex; align-items: center; gap: 6px; }
+.cpm-tn .cpm-tn-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpm-tn-see { all: unset; flex: none; cursor: pointer; font-size: .82em; line-height: 1.5; padding: 0 7px; border-radius: 999px; border: 1px solid color-mix(in srgb, currentColor 35%, transparent); opacity: .85; }
+.cpm-tn-see:hover { opacity: 1; }
+.cpm-tn-list { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); cursor: default; }
+.cpm-tn-open .cpm-tn-list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.cpm-tn-box { min-width: 0; max-height: 9.5em; overflow-y: auto; overscroll-behavior: contain; line-height: 1.4; }
+.cpm-tn-box.cpm-tn-off { border-left: 1px solid color-mix(in srgb, currentColor 18%, transparent); padding-left: 10px; }
+.toast-message:has(.cpm-tn-list), .cpm-tn-list, .cpm-tn-box, .cpm-tn-grp { background-color: inherit; }
+.cpm-tn-grp { position: sticky; top: 0; font-size: .9em; }
+.cpm-tn-grp { color: color-mix(in srgb, currentColor 60%, transparent); }
+.cpm-tn-row { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 0; }
+.cpm-tn-off .cpm-tn-row { opacity: .6; }
+
+/* 업데이트 내역: ⓘ 의 N 표시 · ⓘ 창 맨 위 상자 · 제목 옆 버전 */
+.cpm-info-btn { position: relative; }
+.cpm-info-btn.cpm-new::after { content: "N"; position: absolute; top: 1px; right: 0; min-width: 1.4em; height: 1.4em; padding: 0 .2em; box-sizing: border-box; border-radius: 999px; background: #e5484d; color: #fff; font-size: max(.6em, 8px); font-family: system-ui, sans-serif; font-weight: 700; line-height: 1.4em; text-align: center; pointer-events: none; }
+.cpm-edit .cpm-edit-title { display: flex; align-items: center; gap: 8px; }
+.cpm-edit .cpm-ver { all: unset; cursor: pointer; font-size: .62em; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--cpm-line); color: var(--cpm-muted); }
+.cpm-edit .cpm-ver:hover { color: var(--SmartThemeBodyColor); }
+.cpm-edit .cpm-ver:focus-visible { outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 1px; }
+.cpm-log-top { margin: 10px 0 4px; padding: 8px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--SmartThemeQuoteColor) 45%, transparent); background: color-mix(in srgb, var(--SmartThemeQuoteColor) 7%, transparent); }
+.cpm-log .cpm-log-head { display: flex; align-items: baseline; gap: 8px; font-weight: 600; margin: 2px 0 2px; }
+.cpm-log .cpm-log-head small { font-weight: 400; opacity: .65; }
+.cpm-log ul { margin: 2px 0 6px; padding-left: 20px; font-size: .92em; }
+.cpm-log li { margin: 2px 0; }
+.cpm-log .cpm-log-old { margin-top: 6px; }
+.cpm-log .cpm-log-scroll { max-height: 14em; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+.cpm-log .cpm-log-scroll .cpm-log-head:not(:first-child) { margin-top: 8px; }
